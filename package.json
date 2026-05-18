@@ -1,0 +1,21 @@
+{
+  "name": "workhub",
+  "version": "1.0.0",
+  "description": "Full workhub for organizations",
+  "private": true,
+  "workspaces": [
+    "workhub-web",
+    "workhub-mobile"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently -n web,mobile -c cyan,magenta \"npm run dev -w workhub-web\" \"npm run dev -w workhub-mobile\"",
+    "build": "npm run build --workspaces",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "kristiyan_kiryakov",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
