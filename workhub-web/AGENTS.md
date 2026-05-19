@@ -76,7 +76,7 @@ Each module should contain:
 
 ## Database Guidelines
 
-- Always use Drizzle migrations
+- Always use Drizzle migrations. Name the migrations with proper name suggesting what it do.
 - Never change schema manually
 - Use indexes for filtering and paging
 - Use foreign keys

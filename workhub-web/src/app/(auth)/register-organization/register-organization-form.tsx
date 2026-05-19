@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useActionState, useMemo, useState } from "react";
+
+import {
+  registerOrganizationAction,
+  type RegisterOrganizationActionState,
+} from "@/modules/organizations/actions/register-organization-actions";
 
 type RegisterFields = {
   organizationName: string;
@@ -19,7 +24,13 @@ const initialFields: RegisterFields = {
   confirmPassword: "",
 };
 
-export function RegisterOrganizationForm() {
+const initialActionState: RegisterOrganizationActionState = {};
+
+export function RegisterOrganizationForm({ csrfToken }: { csrfToken: string }) {
+  const [actionState, formAction, isPending] = useActionState(
+    registerOrganizationAction,
+    initialActionState,
+  );
   const [fields, setFields] = useState<RegisterFields>(initialFields);
   const [submitted, setSubmitted] = useState(false);
 
@@ -60,6 +71,9 @@ export function RegisterOrganizationForm() {
 
     return nextErrors;
   }, [fields]);
+  const visibleErrors = submitted
+    ? { ...(actionState.fieldErrors ?? {}), ...errors }
+    : (actionState.fieldErrors ?? {});
 
   const hasErrors = Object.keys(errors).length > 0;
 
@@ -71,10 +85,10 @@ export function RegisterOrganizationForm() {
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
     setSubmitted(true);
 
     if (hasErrors) {
+      event.preventDefault();
       return;
     }
   }
@@ -92,15 +106,18 @@ export function RegisterOrganizationForm() {
         </div>
 
         <form
+          action={formAction}
           onSubmit={handleSubmit}
           className="mt-8 grid gap-5 sm:grid-cols-2"
           noValidate
         >
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+
           <Field
             id="organizationName"
             label="Organization name"
             value={fields.organizationName}
-            error={submitted ? errors.organizationName : undefined}
+            error={visibleErrors.organizationName}
             onChange={(value) => updateField("organizationName", value)}
             className="sm:col-span-2"
           />
@@ -108,7 +125,7 @@ export function RegisterOrganizationForm() {
             id="adminFullName"
             label="Admin full name"
             value={fields.adminFullName}
-            error={submitted ? errors.adminFullName : undefined}
+            error={visibleErrors.adminFullName}
             onChange={(value) => updateField("adminFullName", value)}
           />
           <Field
@@ -117,7 +134,7 @@ export function RegisterOrganizationForm() {
             type="email"
             autoComplete="email"
             value={fields.adminEmail}
-            error={submitted ? errors.adminEmail : undefined}
+            error={visibleErrors.adminEmail}
             onChange={(value) => updateField("adminEmail", value)}
           />
           <Field
@@ -126,7 +143,7 @@ export function RegisterOrganizationForm() {
             type="password"
             autoComplete="new-password"
             value={fields.password}
-            error={submitted ? errors.password : undefined}
+            error={visibleErrors.password}
             onChange={(value) => updateField("password", value)}
           />
           <Field
@@ -135,23 +152,23 @@ export function RegisterOrganizationForm() {
             type="password"
             autoComplete="new-password"
             value={fields.confirmPassword}
-            error={submitted ? errors.confirmPassword : undefined}
+            error={visibleErrors.confirmPassword}
             onChange={(value) => updateField("confirmPassword", value)}
           />
 
-          {submitted && !hasErrors ? (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 sm:col-span-2">
-              Registration validation passed. Organization creation will
-              connect here when the registration server action is implemented.
+          {actionState.error ? (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2">
+              {actionState.error}
             </p>
           ) : null}
 
           <div className="sm:col-span-2">
             <button
               type="submit"
-              className="inline-flex h-11 w-full items-center justify-center rounded-md bg-cyan-700 px-4 text-sm font-semibold text-white transition hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-700 focus:ring-offset-2 sm:w-auto"
+              disabled={isPending || (submitted && hasErrors)}
+              className="inline-flex h-11 w-full items-center justify-center rounded-md bg-cyan-700 px-4 text-sm font-semibold text-white transition hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-400 sm:w-auto"
             >
-              Register Organization
+              {isPending ? "Creating..." : "Register Organization"}
             </button>
           </div>
         </form>

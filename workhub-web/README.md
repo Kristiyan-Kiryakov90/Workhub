@@ -1,36 +1,113 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# WorkHub Web
 
-## Getting Started
+Next.js App Router web app for WorkHub, an enterprise workforce and operations management platform.
 
-First, run the development server:
+## Stack
+
+- Next.js App Router
+- React
+- TypeScript
+- Tailwind CSS
+- Neon PostgreSQL
+- Drizzle ORM
+
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `src/app/page.tsx`. The page auto-updates as you edit the file.
+Useful commands:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run build
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
 
-## Learn More
+Required environment variables:
 
-To learn more about Next.js, take a look at the following resources:
+```env
+DATABASE_URL=postgresql://...
+JWT_SECRET=...
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Authentication
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Authentication is implemented with Server Actions, JWT cookies, and DB-backed sessions.
 
-## Deploy on Vercel
+Current auth features:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Organization registration creates a new organization and its first Main Admin.
+- Regular users do not self-register publicly.
+- Login validates email/password server-side.
+- Passwords are hashed with bcrypt.
+- JWTs are signed with `jose`.
+- Session JWTs are stored in an HTTP-only cookie named `workhub_session`.
+- Cookies use `sameSite: "lax"` and `secure: true` in production.
+- Sessions are stored in the `sessions` table and can be revoked.
+- Logout revokes the DB session and clears the cookie.
+- `getCurrentUser()` validates JWT signature, expiration, DB session, revocation state, and active user status.
+- Login, logout, and organization registration use signed, time-limited, single-use CSRF tokens. Nonces are recorded in `csrf_tokens` on first successful verification, so replay attempts fail.
+- Login and organization registration are rate limited.
+- Auth events are written to `audit_logs`.
+- User emails are globally unique to avoid ambiguous login.
+- Header shows Login for guests and user/org info plus Logout for authenticated users.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Public routes:
+
+- `/`
+- `/login`
+- `/register-organization`
+
+Protected routes are guarded by `src/proxy.ts`, but protected pages, Server Actions, and APIs must also use server-side authorization helpers.
+
+Reusable auth helpers:
+
+- `getCurrentUser()`
+- `requireCurrentUser()`
+- `requirePermission(permission)`
+- `userHasPermission(user, permission)`
+- `userHasRole(user, roleName)`
+- `requireDepartmentAccess(departmentId, options)`
+- `userCanAccessDepartment(user, departmentId, options)`
+
+Production notes:
+
+- Email verification is not implemented yet.
+- Rate limiting is currently in-memory. Use Redis, Upstash, or another shared store for multi-instance production.
+- Expired `sessions` and `csrf_tokens` should be deleted by a scheduled cleanup job.
+
+## Database
+
+Schema lives in `src/db/schema.ts`.
+
+Migrations live in `drizzle/` and must be generated/applied through Drizzle:
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+Main tables:
+
+- `organizations`
+- `users`
+- `sessions`
+- `csrf_tokens`
+- `audit_logs`
+- `roles`
+- `permissions`
+- `role_permissions`
+- `user_roles`
+- `departments`
+- `department_members`
+- `leave_requests`
+- `shifts`
+- `shift_assignments`
+- `tasks`

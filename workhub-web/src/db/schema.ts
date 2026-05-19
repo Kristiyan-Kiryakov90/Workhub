@@ -85,12 +85,77 @@ export const users = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    uniqueIndex("users_email_unique").on(table.email),
     uniqueIndex("users_organization_email_unique").on(
       table.organizationId,
       table.email,
     ),
     index("users_organization_idx").on(table.organizationId),
     index("users_active_idx").on(table.isActive),
+  ],
+);
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: integer("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("sessions_user_idx").on(table.userId),
+    index("sessions_organization_idx").on(table.organizationId),
+    index("sessions_expires_at_idx").on(table.expiresAt),
+    index("sessions_revoked_at_idx").on(table.revokedAt),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: serial("id").primaryKey(),
+    organizationId: integer("organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" },
+    ),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    event: varchar("event", { length: 120 }).notNull(),
+    email: varchar("email", { length: 320 }),
+    ipAddress: varchar("ip_address", { length: 120 }),
+    userAgent: text("user_agent"),
+    metadata: text("metadata"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("audit_logs_organization_idx").on(table.organizationId),
+    index("audit_logs_user_idx").on(table.userId),
+    index("audit_logs_event_idx").on(table.event),
+    index("audit_logs_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const csrfTokens = pgTable(
+  "csrf_tokens",
+  {
+    nonce: varchar("nonce", { length: 64 }).primaryKey(),
+    action: varchar("action", { length: 120 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("csrf_tokens_action_idx").on(table.action),
+    index("csrf_tokens_expires_at_idx").on(table.expiresAt),
+    index("csrf_tokens_used_at_idx").on(table.usedAt),
   ],
 );
 

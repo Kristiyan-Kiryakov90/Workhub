@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { logoutAction } from "@/modules/auth/actions/auth-actions";
+import type { CurrentUser } from "@/modules/auth/types";
+
 type NavigationItem = {
   href: string;
   label: string;
@@ -10,8 +13,12 @@ type NavigationItem = {
 
 export function MobileNavigation({
   navigation,
+  currentUser,
+  logoutCsrfToken,
 }: {
   navigation: NavigationItem[];
+  currentUser: CurrentUser | null;
+  logoutCsrfToken: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -47,6 +54,31 @@ export function MobileNavigation({
               {item.label}
             </Link>
           ))}
+          {currentUser ? (
+            <div className="border-t border-slate-200 px-3 py-3">
+              <p className="text-sm font-semibold text-slate-950">
+                {currentUser.name}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {currentUser.organizationName}
+              </p>
+              <form action={logoutAction} className="mt-3">
+                {logoutCsrfToken ? (
+                  <input
+                    type="hidden"
+                    name="csrfToken"
+                    value={logoutCsrfToken}
+                  />
+                ) : null}
+                <button
+                  type="submit"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-left text-sm font-semibold text-slate-700"
+                >
+                  Logout
+                </button>
+              </form>
+            </div>
+          ) : null}
         </nav>
       ) : null}
     </div>

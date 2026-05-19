@@ -8,6 +8,20 @@
       "when": 1779158623771,
       "tag": "0000_daffy_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779167831973,
+      "tag": "0001_gray_magneto",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779200316237,
+      "tag": "0002_workable_lady_mastermind",
+      "breakpoints": true
     }
   ]
 }

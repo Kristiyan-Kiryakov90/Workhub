@@ -1,9 +1,14 @@
+import { createCsrfToken } from "@/modules/auth/services/csrf-service";
 import { LoginForm } from "./login-form";
 
 export const metadata = {
   title: "Login | WorkHub",
 };
 
-export default function LoginPage() {
-  return <LoginForm />;
+export const dynamic = "force-dynamic";
+
+export default async function LoginPage() {
+  const csrfToken = await createCsrfToken("login");
+
+  return <LoginForm csrfToken={csrfToken} />;
 }

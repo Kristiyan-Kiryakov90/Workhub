@@ -1,14 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useActionState, useMemo, useState } from "react";
+
+import {
+  loginAction,
+  type LoginActionState,
+} from "@/modules/auth/actions/auth-actions";
 
 type LoginFields = {
   email: string;
   password: string;
 };
 
-export function LoginForm() {
+const initialActionState: LoginActionState = {};
+
+export function LoginForm({ csrfToken }: { csrfToken: string }) {
+  const [actionState, formAction, isPending] = useActionState(
+    loginAction,
+    initialActionState,
+  );
   const [fields, setFields] = useState<LoginFields>({
     email: "",
     password: "",
@@ -34,11 +45,10 @@ export function LoginForm() {
   const hasErrors = Object.keys(errors).length > 0;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
     setSubmitted(true);
 
     if (hasErrors) {
-      return;
+      event.preventDefault();
     }
   }
 
@@ -52,7 +62,14 @@ export function LoginForm() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+        <form
+          action={formAction}
+          onSubmit={handleSubmit}
+          className="mt-8 space-y-5"
+          noValidate
+        >
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+
           <div>
             <label
               htmlFor="email"
@@ -111,18 +128,18 @@ export function LoginForm() {
             ) : null}
           </div>
 
-          {submitted && !hasErrors ? (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Login validation passed. Authentication will connect here when
-              the auth server action is implemented.
+          {actionState.error ? (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {actionState.error}
             </p>
           ) : null}
 
           <button
             type="submit"
+            disabled={isPending || (submitted && hasErrors)}
             className="inline-flex h-11 w-full items-center justify-center rounded-md bg-cyan-700 px-4 text-sm font-semibold text-white transition hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-700 focus:ring-offset-2"
           >
-            Login
+            {isPending ? "Logging in..." : "Login"}
           </button>
         </form>
 
