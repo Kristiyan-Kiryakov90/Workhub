@@ -12,5 +12,8 @@ export type SessionPayload = {
   sub: string;
   organizationId: number;
   email: string;
+  name?: string;
+  organizationName?: string;
+  organizationSlug?: string;
   exp: number;
 };

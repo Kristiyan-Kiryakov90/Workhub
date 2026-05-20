@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 import {
   AuthorizationError,
@@ -101,6 +101,7 @@ export async function updateTaskDetailsAction(formData: FormData) {
 
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskCaches(user);
   redirect("/tasks");
 }
 
@@ -173,6 +174,7 @@ export async function createTaskAction(formData: FormData) {
   }
 
   revalidatePath("/tasks");
+  revalidateTaskCaches(user);
   redirect("/tasks");
 }
 
@@ -207,6 +209,7 @@ export async function toggleChecklistItemAction(formData: FormData) {
 
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskCaches(user);
   redirect(`/tasks/${taskId}`);
 }
 
@@ -239,6 +242,7 @@ export async function addChecklistItemAction(formData: FormData) {
 
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskCaches(user);
   redirect(`/tasks/${taskId}`);
 }
 
@@ -271,7 +275,111 @@ export async function deleteChecklistItemAction(formData: FormData) {
 
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskCaches(user);
   redirect(`/tasks/${taskId}`);
+}
+
+export async function toggleChecklistItemInlineAction(input: {
+  taskId: number;
+  itemId: number;
+  isCompleted: boolean;
+  csrfToken: string;
+}) {
+  const user = await requireActionUser();
+
+  if (!Number.isInteger(input.taskId) || input.taskId <= 0) {
+    return { ok: false, error: "invalid-task" };
+  }
+
+  if (!Number.isInteger(input.itemId) || input.itemId <= 0) {
+    return { ok: false, error: "invalid-checklist" };
+  }
+
+  if (!(await verifyCsrfToken(input.csrfToken, "task.checklist.toggle"))) {
+    return { ok: false, error: "session-expired" };
+  }
+
+  const result = await toggleTaskChecklistItem(user, {
+    taskId: input.taskId,
+    itemId: input.itemId,
+    isCompleted: input.isCompleted,
+  });
+
+  if (result.ok) {
+    return { ok: true };
+  }
+
+  return { ok: false, error: "forbidden" };
+}
+
+export async function addChecklistItemInlineAction(input: {
+  taskId: number;
+  title: string;
+  csrfToken: string;
+}) {
+  const user = await requireActionUser();
+  const title = input.title.trim();
+
+  if (!Number.isInteger(input.taskId) || input.taskId <= 0) {
+    return { ok: false, error: "invalid-task" };
+  }
+
+  if (!title || title.length > 255) {
+    return { ok: false, error: "invalid-checklist" };
+  }
+
+  if (!(await verifyCsrfToken(input.csrfToken, "task.checklist.add"))) {
+    return { ok: false, error: "session-expired" };
+  }
+
+  const result = await addTaskChecklistItem(user, {
+    taskId: input.taskId,
+    title,
+  });
+
+  if (result.ok && result.item) {
+    return { ok: true, item: result.item };
+  }
+
+  return { ok: false, error: "forbidden" };
+}
+
+export async function deleteChecklistItemInlineAction(input: {
+  taskId: number;
+  itemId: number;
+  csrfToken: string;
+}) {
+  const user = await requireActionUser();
+
+  if (!Number.isInteger(input.taskId) || input.taskId <= 0) {
+    return { ok: false, error: "invalid-task" };
+  }
+
+  if (!Number.isInteger(input.itemId) || input.itemId <= 0) {
+    return { ok: false, error: "invalid-checklist" };
+  }
+
+  if (!(await verifyCsrfToken(input.csrfToken, "task.checklist.delete"))) {
+    return { ok: false, error: "session-expired" };
+  }
+
+  const result = await deleteTaskChecklistItem(user, {
+    taskId: input.taskId,
+    itemId: input.itemId,
+  });
+
+  if (result.ok) {
+    return { ok: true };
+  }
+
+  return { ok: false, error: "forbidden" };
+}
+
+function revalidateTaskCaches(user: Awaited<ReturnType<typeof requireCurrentUser>>) {
+  revalidateTag(`tasks:${user.organizationId}`, "max");
+  revalidateTag(`tasks:${user.organizationId}:${user.id}`, "max");
+  revalidateTag(`dashboard:${user.organizationId}`, "max");
+  revalidateTag(`dashboard:${user.organizationId}:${user.id}`, "max");
 }
 
 function isTaskStatus(value: string): value is TaskStatus {

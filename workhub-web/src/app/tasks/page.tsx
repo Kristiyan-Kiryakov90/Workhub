@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
   AuthorizationError,
   requireCurrentUser,
 } from "@/modules/auth/services/authorization-service";
+import type { CurrentUser } from "@/modules/auth/types";
 import {
   getTaskListData,
   taskPriorities,
@@ -28,7 +30,7 @@ export default async function TasksPage({
   const user = await requireTasksUser();
   const params = await searchParams;
   const filters = parseFilters(params);
-  const data = await getTaskListData(user, filters);
+  const data = await getCachedTaskListData(user, filters);
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -128,6 +130,37 @@ export default async function TasksPage({
       </div>
     </section>
   );
+}
+
+async function getCachedTaskListData(user: CurrentUser, filters: TaskListFilters) {
+  return unstable_cache(
+    async () => getTaskListData(user, filters),
+    [
+      "task-list",
+      String(user.organizationId),
+      String(user.id),
+      stableTaskFiltersKey(filters),
+    ],
+    {
+      revalidate: 30,
+      tags: [
+        `tasks:${user.organizationId}`,
+        `tasks:${user.organizationId}:${user.id}`,
+      ],
+    },
+  )();
+}
+
+function stableTaskFiltersKey(filters: TaskListFilters) {
+  return JSON.stringify({
+    status: filters.status ?? null,
+    priority: filters.priority ?? null,
+    departmentId: filters.departmentId ?? null,
+    assignedToUserId: filters.assignedToUserId ?? null,
+    search: filters.search ?? null,
+    activePage: filters.activePage ?? 1,
+    archivePage: filters.archivePage ?? 1,
+  });
 }
 
 function TaskSection({
@@ -482,12 +515,16 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatDateTime(value: Date) {
+function formatDateTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(value);
+  }).format(toDate(value));
+}
+
+function toDate(value: Date | string) {
+  return value instanceof Date ? value : new Date(value);
 }
 
 function isPastDate(value: string) {

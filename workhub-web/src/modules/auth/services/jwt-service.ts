@@ -18,6 +18,9 @@ export async function signSessionToken(payload: SessionPayload) {
   return new SignJWT({
     email: payload.email,
     organizationId: payload.organizationId,
+    name: payload.name,
+    organizationName: payload.organizationName,
+    organizationSlug: payload.organizationSlug,
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setJti(payload.jti)
@@ -48,6 +51,15 @@ export async function verifySessionToken(token: string) {
       sub: payload.sub,
       email: payload.email,
       organizationId: payload.organizationId,
+      name: typeof payload.name === "string" ? payload.name : undefined,
+      organizationName:
+        typeof payload.organizationName === "string"
+          ? payload.organizationName
+          : undefined,
+      organizationSlug:
+        typeof payload.organizationSlug === "string"
+          ? payload.organizationSlug
+          : undefined,
       exp: payload.exp,
     } satisfies SessionPayload;
   } catch {

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { logoutAction } from "@/modules/auth/actions/auth-actions";
 import { createCsrfToken } from "@/modules/auth/services/csrf-service";
-import { getCurrentUser } from "@/modules/auth/services/session-service";
-import { MobileNavigation } from "./mobile-navigation";
+import { getCurrentSessionPayload } from "@/modules/auth/services/session-service";
+import { MobileNavigation, type HeaderUser } from "./mobile-navigation";
 
 const publicNavigation = [
   { href: "/", label: "Home" },
@@ -13,12 +13,16 @@ const publicNavigation = [
 const appNavigation = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/tasks", label: "Tasks" },
-  { href: "/leave", label: "Leave" },
-  { href: "/shifts", label: "Shifts" },
 ];
 
 export async function PublicHeader() {
-  const currentUser = await getCurrentUser();
+  const currentSession = await getCurrentSessionPayload();
+  const currentUser = currentSession
+    ? ({
+        name: currentSession.name ?? currentSession.email,
+        organizationName: currentSession.organizationName ?? "WorkHub",
+      } satisfies HeaderUser)
+    : null;
   const logoutCsrfToken = currentUser ? await createCsrfToken("logout") : null;
   const navigation = currentUser ? appNavigation : publicNavigation;
 

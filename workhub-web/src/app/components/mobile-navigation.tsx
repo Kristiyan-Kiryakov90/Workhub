@@ -4,11 +4,15 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { logoutAction } from "@/modules/auth/actions/auth-actions";
-import type { CurrentUser } from "@/modules/auth/types";
 
 type NavigationItem = {
   href: string;
   label: string;
+};
+
+export type HeaderUser = {
+  name: string;
+  organizationName: string;
 };
 
 export function MobileNavigation({
@@ -17,7 +21,7 @@ export function MobileNavigation({
   logoutCsrfToken,
 }: {
   navigation: NavigationItem[];
-  currentUser: CurrentUser | null;
+  currentUser: HeaderUser | null;
   logoutCsrfToken: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);

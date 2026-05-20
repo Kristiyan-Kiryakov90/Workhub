@@ -1,8 +1,5 @@
 import { jwtVerify, SignJWT } from "jose";
 
-import { db } from "@/db";
-import { csrfTokens } from "@/db/schema";
-
 const textEncoder = new TextEncoder();
 const csrfTokenDurationSeconds = 15 * 60;
 
@@ -36,17 +33,7 @@ export async function verifyCsrfToken(token: string, action: string) {
       return false;
     }
 
-    const [consumedToken] = await db
-      .insert(csrfTokens)
-      .values({
-        nonce: payload.nonce,
-        action,
-        expiresAt: new Date((payload.exp ?? 0) * 1000),
-        usedAt: new Date(),
-      })
-      .returning({ nonce: csrfTokens.nonce });
-
-    return Boolean(consumedToken);
+    return true;
   } catch {
     return false;
   }

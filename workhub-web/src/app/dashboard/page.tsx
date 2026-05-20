@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
   AuthorizationError,
   requireCurrentUser,
 } from "@/modules/auth/services/authorization-service";
+import type { CurrentUser } from "@/modules/auth/types";
 import { getDashboardData } from "@/modules/dashboard/services/dashboard-service";
 
 export const metadata = {
@@ -13,7 +15,7 @@ export const metadata = {
 
 export default async function DashboardPage() {
   const user = await requireDashboardUser();
-  const dashboard = await getDashboardData(user);
+  const dashboard = await getCachedDashboardData(user);
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -229,6 +231,20 @@ export default async function DashboardPage() {
   );
 }
 
+async function getCachedDashboardData(user: CurrentUser) {
+  return unstable_cache(
+    async () => getDashboardData(user),
+    ["dashboard", String(user.organizationId), String(user.id)],
+    {
+      revalidate: 30,
+      tags: [
+        `dashboard:${user.organizationId}`,
+        `dashboard:${user.organizationId}:${user.id}`,
+      ],
+    },
+  )();
+}
+
 function DashboardSection({
   title,
   children,
@@ -337,8 +353,8 @@ function ShiftCard({
   href: string;
   title: string;
   department: string;
-  startTime: Date;
-  endTime: Date;
+  startTime: Date | string;
+  endTime: Date | string;
   location: string | null;
   status: string;
 }) {
@@ -516,20 +532,24 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatDateTime(value: Date) {
+function formatDateTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(value);
+  }).format(toDate(value));
 }
 
-function formatTime(value: Date) {
+function formatTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
     hour: "numeric",
     minute: "2-digit",
-  }).format(value);
+  }).format(toDate(value));
+}
+
+function toDate(value: Date | string) {
+  return value instanceof Date ? value : new Date(value);
 }
 
 function isPastDate(value: string) {

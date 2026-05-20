@@ -18,6 +18,7 @@ import {
   departmentMembers,
   departments,
   leaveRequests,
+  organizations,
   roles,
   shiftAssignments,
   shifts,
@@ -32,10 +33,7 @@ export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 const activeTaskStatuses = ["todo", "in_progress"] as const;
 
 export async function getDashboardData(user: CurrentUser) {
-  const [roleNames, managedDepartments] = await Promise.all([
-    getUserRoleNames(user),
-    getManagedDepartments(user),
-  ]);
+  const { roleNames, managedDepartments } = await getDashboardActorContext(user);
 
   const isMainAdmin = roleNames.includes("Main Admin");
   const isDepartmentManager = managedDepartments.length > 0;
@@ -88,11 +86,30 @@ export async function getDashboardData(user: CurrentUser) {
   };
 }
 
-async function getUserRoleNames(user: CurrentUser) {
+async function getDashboardActorContext(user: CurrentUser) {
   const rows = await db
-    .select({ name: roles.name })
+    .select({
+      roleName: roles.name,
+      managedDepartmentId: departments.id,
+      managedDepartmentName: departments.name,
+    })
     .from(userRoles)
     .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .leftJoin(
+      departmentMembers,
+      and(
+        eq(departmentMembers.userId, user.id),
+        eq(departmentMembers.organizationId, user.organizationId),
+        eq(departmentMembers.isManager, true),
+      ),
+    )
+    .leftJoin(
+      departments,
+      and(
+        eq(departmentMembers.departmentId, departments.id),
+        eq(departments.organizationId, user.organizationId),
+      ),
+    )
     .where(
       and(
         eq(userRoles.userId, user.id),
@@ -101,26 +118,26 @@ async function getUserRoleNames(user: CurrentUser) {
       ),
     );
 
-  return rows.map((row) => row.name);
-}
-
-async function getManagedDepartments(user: CurrentUser) {
-  return db
-    .select({
-      id: departments.id,
-      name: departments.name,
-    })
-    .from(departmentMembers)
-    .innerJoin(departments, eq(departmentMembers.departmentId, departments.id))
-    .where(
-      and(
-        eq(departmentMembers.userId, user.id),
-        eq(departmentMembers.organizationId, user.organizationId),
-        eq(departmentMembers.isManager, true),
-        eq(departments.organizationId, user.organizationId),
-      ),
-    )
-    .orderBy(asc(departments.name));
+  return {
+    roleNames: Array.from(new Set(rows.map((row) => row.roleName))),
+    managedDepartments: Array.from(
+      new Map(
+        rows.flatMap((row) =>
+          row.managedDepartmentId && row.managedDepartmentName
+            ? [
+                [
+                  row.managedDepartmentId,
+                  {
+                    id: row.managedDepartmentId,
+                    name: row.managedDepartmentName,
+                  },
+                ],
+              ]
+            : [],
+        ),
+      ).values(),
+    ).sort((first, second) => first.name.localeCompare(second.name)),
+  };
 }
 
 async function getMyActiveTasks(user: CurrentUser) {
@@ -303,72 +320,58 @@ async function getDepartmentTasks(
 }
 
 async function getOrganizationSummary(user: CurrentUser) {
-  const [
-    departmentCount,
-    activeUserCount,
-    managerCount,
-    pendingLeaveCount,
-    upcomingShiftCount,
-    activeTaskCount,
-  ] = await Promise.all([
-    db
-      .select({ value: count() })
-      .from(departments)
-      .where(eq(departments.organizationId, user.organizationId)),
-    db
-      .select({ value: count() })
-      .from(users)
-      .where(
-        and(eq(users.organizationId, user.organizationId), eq(users.isActive, true)),
-      ),
-    db
-      .select({ value: sql<number>`count(distinct ${userRoles.userId})` })
-      .from(userRoles)
-      .innerJoin(roles, eq(userRoles.roleId, roles.id))
-      .where(
-        and(
-          eq(userRoles.organizationId, user.organizationId),
-          eq(roles.organizationId, user.organizationId),
-          eq(roles.name, "Department Manager"),
-        ),
-      ),
-    db
-      .select({ value: count() })
-      .from(leaveRequests)
-      .where(
-        and(
-          eq(leaveRequests.organizationId, user.organizationId),
-          eq(leaveRequests.status, "pending"),
-        ),
-      ),
-    db
-      .select({ value: count() })
-      .from(shifts)
-      .where(
-        and(
-          eq(shifts.organizationId, user.organizationId),
-          gt(shifts.startTime, new Date()),
-          ne(shifts.status, "cancelled"),
-        ),
-      ),
-    db
-      .select({ value: count() })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.organizationId, user.organizationId),
-          inArray(tasks.status, activeTaskStatuses),
-        ),
-      ),
-  ]);
+  const [row] = await db
+    .select({
+      totalDepartments: sql<number>`(
+        select count(*)
+        from ${departments}
+        where ${departments.organizationId} = ${user.organizationId}
+      )`,
+      totalActiveUsers: sql<number>`(
+        select count(*)
+        from ${users}
+        where ${users.organizationId} = ${user.organizationId}
+          and ${users.isActive} = true
+      )`,
+      totalDepartmentManagers: sql<number>`(
+        select count(distinct ${userRoles.userId})
+        from ${userRoles}
+        inner join ${roles} on ${userRoles.roleId} = ${roles.id}
+        where ${userRoles.organizationId} = ${user.organizationId}
+          and ${roles.organizationId} = ${user.organizationId}
+          and ${roles.name} = 'Department Manager'
+      )`,
+      totalPendingLeaveRequests: sql<number>`(
+        select count(*)
+        from ${leaveRequests}
+        where ${leaveRequests.organizationId} = ${user.organizationId}
+          and ${leaveRequests.status} = 'pending'
+      )`,
+      totalUpcomingShifts: sql<number>`(
+        select count(*)
+        from ${shifts}
+        where ${shifts.organizationId} = ${user.organizationId}
+          and ${shifts.startTime} > now()
+          and ${shifts.status} <> 'cancelled'
+      )`,
+      totalActiveTasks: sql<number>`(
+        select count(*)
+        from ${tasks}
+        where ${tasks.organizationId} = ${user.organizationId}
+          and ${tasks.status} in ('todo', 'in_progress')
+      )`,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, user.organizationId))
+    .limit(1);
 
   return {
-    totalDepartments: Number(departmentCount[0]?.value ?? 0),
-    totalActiveUsers: Number(activeUserCount[0]?.value ?? 0),
-    totalDepartmentManagers: Number(managerCount[0]?.value ?? 0),
-    totalPendingLeaveRequests: Number(pendingLeaveCount[0]?.value ?? 0),
-    totalUpcomingShifts: Number(upcomingShiftCount[0]?.value ?? 0),
-    totalActiveTasks: Number(activeTaskCount[0]?.value ?? 0),
+    totalDepartments: Number(row?.totalDepartments ?? 0),
+    totalActiveUsers: Number(row?.totalActiveUsers ?? 0),
+    totalDepartmentManagers: Number(row?.totalDepartmentManagers ?? 0),
+    totalPendingLeaveRequests: Number(row?.totalPendingLeaveRequests ?? 0),
+    totalUpcomingShifts: Number(row?.totalUpcomingShifts ?? 0),
+    totalActiveTasks: Number(row?.totalActiveTasks ?? 0),
   };
 }
 

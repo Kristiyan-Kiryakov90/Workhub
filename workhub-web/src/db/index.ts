@@ -1,7 +1,7 @@
 import "server-only";
 
-import { Pool } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -9,6 +9,6 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required");
 }
 
-const pool = new Pool({ connectionString: databaseUrl });
+const sql = neon(databaseUrl);
 
-export const db = drizzle(pool);
+export const db = drizzle(sql);

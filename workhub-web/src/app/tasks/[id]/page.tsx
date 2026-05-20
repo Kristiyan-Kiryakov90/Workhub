@@ -7,9 +7,6 @@ import {
 } from "@/modules/auth/services/authorization-service";
 import { createCsrfToken } from "@/modules/auth/services/csrf-service";
 import {
-  addChecklistItemAction,
-  deleteChecklistItemAction,
-  toggleChecklistItemAction,
   updateTaskDetailsAction,
 } from "@/modules/tasks/actions/task-actions";
 import {
@@ -17,11 +14,7 @@ import {
   taskPriorities,
   taskStatuses,
 } from "@/modules/tasks/services/task-list-service";
-import {
-  AddChecklistButton,
-  ChecklistDeleteButton,
-  ChecklistToggleButton,
-} from "./checklist-controls";
+import { TaskChecklist } from "./checklist-controls";
 import { SaveTaskButton } from "./save-task-button";
 
 export const metadata = {
@@ -54,19 +47,10 @@ export default async function TaskDetailsPage({
   const addChecklistCsrfToken = task.canManageTask
     ? await createCsrfToken("task.checklist.add")
     : null;
-  const checklistTokens = new Map(
-    await Promise.all(
-      task.checklistItems.map(async (item) => [
-        item.id,
-        {
-          toggle: await createCsrfToken("task.checklist.toggle"),
-          delete: task.canManageTask
-            ? await createCsrfToken("task.checklist.delete")
-            : null,
-        },
-      ] as const),
-    ),
-  );
+  const toggleChecklistCsrfToken = await createCsrfToken("task.checklist.toggle");
+  const deleteChecklistCsrfToken = task.canManageTask
+    ? await createCsrfToken("task.checklist.delete")
+    : null;
   const updated = firstParam(query.updated) === "1";
   const error = firstParam(query.error);
 
@@ -125,81 +109,14 @@ export default async function TaskDetailsPage({
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
             Checklist
           </h2>
-          {task.checklistItems.length > 0 ? (
-            <ul className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-slate-50">
-              {task.checklistItems.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700"
-                >
-                  <form action={toggleChecklistItemAction}>
-                    <input type="hidden" name="taskId" value={task.id} />
-                    <input type="hidden" name="itemId" value={item.id} />
-                    <input
-                      type="hidden"
-                      name="isCompleted"
-                      value={item.isCompleted ? "false" : "true"}
-                    />
-                    <input
-                      type="hidden"
-                      name="csrfToken"
-                      value={checklistTokens.get(item.id)?.toggle ?? ""}
-                    />
-                    <ChecklistToggleButton isCompleted={item.isCompleted} />
-                  </form>
-
-                  <span
-                    className={[
-                      "min-w-0 flex-1",
-                      item.isCompleted ? "line-through text-slate-500" : "",
-                    ].join(" ")}
-                  >
-                    {item.title}
-                  </span>
-
-                  {task.canManageTask ? (
-                    <form action={deleteChecklistItemAction}>
-                      <input type="hidden" name="taskId" value={task.id} />
-                      <input type="hidden" name="itemId" value={item.id} />
-                      <input
-                        type="hidden"
-                        name="csrfToken"
-                        value={checklistTokens.get(item.id)?.delete ?? ""}
-                      />
-                      <ChecklistDeleteButton />
-                    </form>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-sm text-slate-600">No checklist items.</p>
-          )}
-
-          {task.canManageTask ? (
-            <form
-              action={addChecklistItemAction}
-              className="mt-4 flex flex-col gap-3 sm:flex-row"
-            >
-              <input type="hidden" name="taskId" value={task.id} />
-              <input
-                type="hidden"
-                name="csrfToken"
-                value={addChecklistCsrfToken ?? ""}
-              />
-              <label className="flex-1">
-                <span className="sr-only">New checklist item</span>
-                <input
-                  name="title"
-                  maxLength={255}
-                  required
-                  placeholder="Add checklist item"
-                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-                />
-              </label>
-              <AddChecklistButton />
-            </form>
-          ) : null}
+          <TaskChecklist
+            taskId={task.id}
+            initialItems={task.checklistItems}
+            canManageTask={task.canManageTask}
+            toggleCsrfToken={toggleChecklistCsrfToken}
+            addCsrfToken={addChecklistCsrfToken}
+            deleteCsrfToken={deleteChecklistCsrfToken}
+          />
         </div>
 
         <form
@@ -348,8 +265,14 @@ export default async function TaskDetailsPage({
             />
           </label>
 
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-3">
             <SaveTaskButton />
+            <Link
+              href="/tasks"
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+            >
+              Cancel
+            </Link>
           </div>
         </form>
       </div>
@@ -471,12 +394,16 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatDateTime(value: Date) {
+function formatDateTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(value);
+  }).format(toDate(value));
+}
+
+function toDate(value: Date | string) {
+  return value instanceof Date ? value : new Date(value);
 }
 
 function firstParam(value: string | string[] | undefined) {

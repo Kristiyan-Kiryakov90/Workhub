@@ -17,6 +17,8 @@ import { db } from "@/db";
 import {
   departmentMembers,
   departments,
+  permissions,
+  rolePermissions,
   roles,
   taskChecklistItems,
   tasks,
@@ -24,7 +26,6 @@ import {
   users,
 } from "@/db/schema";
 import type { CurrentUser } from "@/modules/auth/types";
-import { getCurrentUserPermissions } from "@/modules/auth/services/authorization-service";
 
 export const taskStatuses = [
   "todo",
@@ -86,16 +87,12 @@ export async function getTaskListData(
   user: CurrentUser,
   filters: TaskListFilters,
 ) {
-  const [roleNames, managedDepartments, permissions] = await Promise.all([
-    getUserRoleNames(user),
-    getManagedDepartments(user),
-    getCurrentUserPermissions(user),
-  ]);
+  const context = await getTaskActorContext(user);
 
-  const isMainAdmin = roleNames.includes("Main Admin");
-  const managedDepartmentIds = managedDepartments.map((department) => department.id);
+  const isMainAdmin = context.roleNames.includes("Main Admin");
+  const managedDepartmentIds = context.managedDepartments.map((department) => department.id);
   const canFilterByAssignee = isMainAdmin || managedDepartmentIds.length > 0;
-  const canCreateTask = permissions.has("tasks.create");
+  const canCreateTask = context.permissions.has("tasks.create");
 
   const [departmentOptions, assigneeOptions, activeTasks, archivedTasks] =
     await Promise.all([
@@ -134,12 +131,9 @@ export async function getTaskListData(
 }
 
 export async function getTaskDetails(user: CurrentUser, taskId: number) {
-  const [roleNames, managedDepartments] = await Promise.all([
-    getUserRoleNames(user),
-    getManagedDepartments(user),
-  ]);
-  const isMainAdmin = roleNames.includes("Main Admin");
-  const managedDepartmentIds = managedDepartments.map((department) => department.id);
+  const context = await getTaskActorContext(user);
+  const isMainAdmin = context.roleNames.includes("Main Admin");
+  const managedDepartmentIds = context.managedDepartments.map((department) => department.id);
 
   const conditions = [
     eq(tasks.id, taskId),
@@ -185,9 +179,8 @@ export async function getTaskDetails(user: CurrentUser, taskId: number) {
   }
 
   const checklistItems = await getTaskChecklistItems(user, task.id);
-  const permissions = await getCurrentUserPermissions(user);
   const canManageTask =
-    permissions.has("tasks.update") &&
+    context.permissions.has("tasks.update") &&
     (isMainAdmin || managedDepartmentIds.includes(task.departmentId));
 
   const [departmentOptions, assigneeOptions] = canManageTask
@@ -210,19 +203,7 @@ export async function updateTaskDetails(
   user: CurrentUser,
   input: UpdateTaskDetailsInput,
 ) {
-  const access = await getTaskEditAccess(user, input.taskId);
-
-  if (!access.canEdit) {
-    return { ok: false, error: "You do not have access to update this task." };
-  }
-
-  const updateValues: Partial<typeof tasks.$inferInsert> = {
-    status: input.status,
-    notes: input.notes,
-    updatedAt: new Date(),
-  };
-
-  if (access.canManage) {
+  if (input.title !== undefined) {
     if (!input.title || input.title.length > 220) {
       return { ok: false, error: "Enter a task title up to 220 characters." };
     }
@@ -235,42 +216,61 @@ export async function updateTaskDetails(
       return { ok: false, error: "Choose a valid department." };
     }
 
-    const canUseDepartment = await userCanUseTaskDepartment(
-      user,
-      input.departmentId,
-      access.isMainAdmin,
-    );
+    const [updatedTask] = await db
+      .update(tasks)
+      .set({
+        title: input.title,
+        description: input.description ?? null,
+        status: input.status,
+        priority: input.priority,
+        departmentId: input.departmentId,
+        assignedToUserId: input.assignedToUserId ?? null,
+        dueDate: input.dueDate ?? null,
+        notes: input.notes,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(tasks.id, input.taskId),
+          eq(tasks.organizationId, user.organizationId),
+          canManageTaskSql(user),
+          canUseDepartmentSql(user, input.departmentId),
+          input.assignedToUserId
+            ? assigneeIsActiveSql(user, input.assignedToUserId)
+            : sql`true`,
+        ),
+      )
+      .returning({ id: tasks.id });
 
-    if (!canUseDepartment) {
-      return { ok: false, error: "You cannot move this task to that department." };
+    if (!updatedTask) {
+      return { ok: false, error: "You do not have access to update this task." };
     }
 
-    if (input.assignedToUserId) {
-      const assigneeIsValid = await userExistsInOrganization(
-        user,
-        input.assignedToUserId,
-      );
-
-      if (!assigneeIsValid) {
-        return { ok: false, error: "Choose a valid assigned employee." };
-      }
+    if (input.checklistItems) {
+      await replaceTaskChecklistItems(user, input.taskId, input.checklistItems);
     }
 
-    updateValues.title = input.title;
-    updateValues.description = input.description ?? null;
-    updateValues.priority = input.priority;
-    updateValues.departmentId = input.departmentId;
-    updateValues.assignedToUserId = input.assignedToUserId ?? null;
-    updateValues.dueDate = input.dueDate ?? null;
+    return { ok: true };
   }
 
-  await db
+  const [updatedTask] = await db
     .update(tasks)
-    .set(updateValues)
-    .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)));
+    .set({
+      status: input.status,
+      notes: input.notes,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(tasks.id, input.taskId),
+        eq(tasks.organizationId, user.organizationId),
+        canEditTaskSql(user),
+      ),
+    )
+    .returning({ id: tasks.id });
 
-  if (access.canManage && input.checklistItems) {
-    await replaceTaskChecklistItems(user, input.taskId, input.checklistItems);
+  if (!updatedTask) {
+    return { ok: false, error: "You do not have access to update this task." };
   }
 
   return { ok: true };
@@ -280,23 +280,25 @@ export async function toggleTaskChecklistItem(
   user: CurrentUser,
   input: { taskId: number; itemId: number; isCompleted: boolean },
 ) {
-  const [item] = await db
-    .select({ id: taskChecklistItems.id, taskId: taskChecklistItems.taskId })
-    .from(taskChecklistItems)
-    .where(
-      and(
-        eq(taskChecklistItems.id, input.itemId),
-        eq(taskChecklistItems.taskId, input.taskId),
-        eq(taskChecklistItems.organizationId, user.organizationId),
-      ),
-    )
-    .limit(1);
+  const [itemRows, access] = await Promise.all([
+    db
+      .select({ id: taskChecklistItems.id, taskId: taskChecklistItems.taskId })
+      .from(taskChecklistItems)
+      .where(
+        and(
+          eq(taskChecklistItems.id, input.itemId),
+          eq(taskChecklistItems.taskId, input.taskId),
+          eq(taskChecklistItems.organizationId, user.organizationId),
+        ),
+      )
+      .limit(1),
+    getTaskEditAccess(user, input.taskId),
+  ]);
+  const [item] = itemRows;
 
   if (!item) {
     return { ok: false };
   }
-
-  const access = await getTaskEditAccess(user, input.taskId);
 
   if (!access.canEdit) {
     return { ok: false };
@@ -311,11 +313,6 @@ export async function toggleTaskChecklistItem(
         eq(taskChecklistItems.organizationId, user.organizationId),
       ),
     );
-
-  await db
-    .update(tasks)
-    .set({ updatedAt: new Date() })
-    .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)));
 
   return { ok: true };
 }
@@ -340,20 +337,24 @@ export async function addTaskChecklistItem(
       ),
     );
 
-  await db.insert(taskChecklistItems).values({
-    organizationId: user.organizationId,
-    taskId: input.taskId,
-    title: input.title,
-    isCompleted: false,
-    position: Number(positionRow?.value ?? -1) + 1,
-  });
+  const position = Number(positionRow?.value ?? -1) + 1;
+  const [item] = await db
+    .insert(taskChecklistItems)
+    .values({
+      organizationId: user.organizationId,
+      taskId: input.taskId,
+      title: input.title,
+      isCompleted: false,
+      position,
+    })
+    .returning({
+      id: taskChecklistItems.id,
+      title: taskChecklistItems.title,
+      isCompleted: taskChecklistItems.isCompleted,
+      position: taskChecklistItems.position,
+    });
 
-  await db
-    .update(tasks)
-    .set({ updatedAt: new Date() })
-    .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)));
-
-  return { ok: true };
+  return { ok: true, item };
 }
 
 export async function deleteTaskChecklistItem(
@@ -376,24 +377,15 @@ export async function deleteTaskChecklistItem(
       ),
     );
 
-  await db
-    .update(tasks)
-    .set({ updatedAt: new Date() })
-    .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)));
-
   return { ok: true };
 }
 
 export async function getCreateTaskFormData(user: CurrentUser) {
-  const [roleNames, managedDepartments, permissions] = await Promise.all([
-    getUserRoleNames(user),
-    getManagedDepartments(user),
-    getCurrentUserPermissions(user),
-  ]);
+  const context = await getTaskActorContext(user);
 
-  const isMainAdmin = roleNames.includes("Main Admin");
-  const managedDepartmentIds = managedDepartments.map((department) => department.id);
-  const canCreateTask = permissions.has("tasks.create");
+  const isMainAdmin = context.roleNames.includes("Main Admin");
+  const managedDepartmentIds = context.managedDepartments.map((department) => department.id);
+  const canCreateTask = context.permissions.has("tasks.create");
 
   if (!canCreateTask) {
     return {
@@ -416,16 +408,13 @@ export async function getCreateTaskFormData(user: CurrentUser) {
 }
 
 export async function createTask(user: CurrentUser, input: CreateTaskInput) {
-  const [roleNames, permissions] = await Promise.all([
-    getUserRoleNames(user),
-    getCurrentUserPermissions(user),
-  ]);
+  const context = await getTaskActorContext(user);
 
-  if (!permissions.has("tasks.create")) {
+  if (!context.permissions.has("tasks.create")) {
     return { ok: false, error: "You do not have permission to create tasks." };
   }
 
-  const isMainAdmin = roleNames.includes("Main Admin");
+  const isMainAdmin = context.roleNames.includes("Main Admin");
 
   if (!isMainAdmin) {
     const [membership] = await db
@@ -503,86 +492,102 @@ export async function createTask(user: CurrentUser, input: CreateTaskInput) {
 }
 
 async function getTaskEditAccess(user: CurrentUser, taskId: number) {
-  const [roleNames, managedDepartments, permissions] = await Promise.all([
-    getUserRoleNames(user),
-    getManagedDepartments(user),
-    getCurrentUserPermissions(user),
+  const [context, taskRows] = await Promise.all([
+    getTaskActorContext(user),
+    db
+      .select({
+        id: tasks.id,
+        departmentId: tasks.departmentId,
+        assignedToUserId: tasks.assignedToUserId,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, user.organizationId)))
+      .limit(1),
   ]);
-  const isMainAdmin = roleNames.includes("Main Admin");
-  const managedDepartmentIds = managedDepartments.map((department) => department.id);
-
-  const [task] = await db
-    .select({
-      id: tasks.id,
-      departmentId: tasks.departmentId,
-      assignedToUserId: tasks.assignedToUserId,
-    })
-    .from(tasks)
-    .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, user.organizationId)))
-    .limit(1);
+  const isMainAdmin = context.roleNames.includes("Main Admin");
+  const managedDepartmentIds = context.managedDepartments.map((department) => department.id);
+  const [task] = taskRows;
 
   if (!task) {
     return { canEdit: false, canManage: false, isMainAdmin };
   }
 
   const canManage =
-    permissions.has("tasks.update") &&
+    context.permissions.has("tasks.update") &&
     (isMainAdmin || managedDepartmentIds.includes(task.departmentId));
   const canEdit = canManage || task.assignedToUserId === user.id;
 
   return { canEdit, canManage, isMainAdmin };
 }
 
-async function userCanUseTaskDepartment(
-  user: CurrentUser,
-  departmentId: number,
-  isMainAdmin: boolean,
-) {
-  if (isMainAdmin) {
-    const [department] = await db
-      .select({ id: departments.id })
-      .from(departments)
-      .where(
-        and(
-          eq(departments.id, departmentId),
-          eq(departments.organizationId, user.organizationId),
-        ),
+function canManageTaskSql(user: CurrentUser) {
+  return sql`exists (
+    select 1
+    from ${userRoles}
+    inner join ${roles} on ${userRoles.roleId} = ${roles.id}
+    left join ${rolePermissions} on ${roles.id} = ${rolePermissions.roleId}
+    left join ${permissions} on ${rolePermissions.permissionId} = ${permissions.id}
+    where ${userRoles.userId} = ${user.id}
+      and ${userRoles.organizationId} = ${user.organizationId}
+      and ${roles.organizationId} = ${user.organizationId}
+      and ${permissions.key} = 'tasks.update'
+      and (
+        ${roles.name} = 'Main Admin'
+        or exists (
+          select 1
+          from ${departmentMembers}
+          where ${departmentMembers.userId} = ${user.id}
+            and ${departmentMembers.organizationId} = ${user.organizationId}
+            and ${departmentMembers.departmentId} = ${tasks.departmentId}
+            and ${departmentMembers.isManager} = true
+        )
       )
-      .limit(1);
-
-    return Boolean(department);
-  }
-
-  const [membership] = await db
-    .select({ id: departmentMembers.id })
-    .from(departmentMembers)
-    .where(
-      and(
-        eq(departmentMembers.organizationId, user.organizationId),
-        eq(departmentMembers.departmentId, departmentId),
-        eq(departmentMembers.userId, user.id),
-        eq(departmentMembers.isManager, true),
-      ),
-    )
-    .limit(1);
-
-  return Boolean(membership);
+  )`;
 }
 
-async function userExistsInOrganization(user: CurrentUser, userId: number) {
-  const [assignee] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(
-      and(
-        eq(users.id, userId),
-        eq(users.organizationId, user.organizationId),
-        eq(users.isActive, true),
-      ),
-    )
-    .limit(1);
+function canEditTaskSql(user: CurrentUser) {
+  return sql`(
+    ${tasks.assignedToUserId} = ${user.id}
+    or ${canManageTaskSql(user)}
+  )`;
+}
 
-  return Boolean(assignee);
+function canUseDepartmentSql(user: CurrentUser, departmentId: number) {
+  return sql`exists (
+    select 1
+    from ${departments}
+    where ${departments.id} = ${departmentId}
+      and ${departments.organizationId} = ${user.organizationId}
+      and (
+        exists (
+          select 1
+          from ${userRoles}
+          inner join ${roles} on ${userRoles.roleId} = ${roles.id}
+          where ${userRoles.userId} = ${user.id}
+            and ${userRoles.organizationId} = ${user.organizationId}
+            and ${roles.organizationId} = ${user.organizationId}
+            and ${roles.name} = 'Main Admin'
+        )
+        or exists (
+          select 1
+          from ${departmentMembers}
+          where ${departmentMembers.userId} = ${user.id}
+            and ${departmentMembers.organizationId} = ${user.organizationId}
+            and ${departmentMembers.departmentId} = ${departmentId}
+            and ${departmentMembers.isManager} = true
+        )
+      )
+  )`;
+}
+
+function assigneeIsActiveSql(user: CurrentUser, userId: number) {
+  return sql`exists (
+    select 1
+    from ${users}
+    where ${users.id} = ${userId}
+      and ${users.organizationId} = ${user.organizationId}
+      and ${users.isActive} = true
+  )`;
 }
 
 async function getTasksPage(
@@ -598,6 +603,19 @@ async function getTasksPage(
 ) {
   const where = buildTaskWhere(user, filters, options);
   const offset = (options.page - 1) * pageSize;
+  const checklistCounts = db
+    .select({
+      taskId: taskChecklistItems.taskId,
+      total: count(taskChecklistItems.id).as("total"),
+      completed:
+        sql<number>`sum(case when ${taskChecklistItems.isCompleted} then 1 else 0 end)`.as(
+          "completed",
+        ),
+    })
+    .from(taskChecklistItems)
+    .where(eq(taskChecklistItems.organizationId, user.organizationId))
+    .groupBy(taskChecklistItems.taskId)
+    .as("checklist_counts");
 
   const [rows, totals] = await Promise.all([
     db
@@ -615,10 +633,13 @@ async function getTasksPage(
         departmentName: departments.name,
         assignedToUserId: users.id,
         assignedEmployeeName: users.name,
+        checklistTotal: checklistCounts.total,
+        checklistCompleted: checklistCounts.completed,
       })
       .from(tasks)
       .innerJoin(departments, eq(tasks.departmentId, departments.id))
       .leftJoin(users, eq(tasks.assignedToUserId, users.id))
+      .leftJoin(checklistCounts, eq(checklistCounts.taskId, tasks.id))
       .where(where)
       .orderBy(...getTaskOrderBy(options.section))
       .limit(pageSize)
@@ -630,15 +651,14 @@ async function getTasksPage(
   ]);
 
   const total = Number(totals[0]?.value ?? 0);
-  const checklistCounts = await getChecklistCounts(
-    user,
-    rows.map((row) => row.id),
-  );
 
   return {
     rows: rows.map((row) => ({
       ...row,
-      checklist: checklistCounts.get(row.id) ?? { total: 0, completed: 0 },
+      checklist: {
+        total: Number(row.checklistTotal ?? 0),
+        completed: Number(row.checklistCompleted ?? 0),
+      },
     })),
     total,
     page: options.page,
@@ -664,34 +684,6 @@ async function getTaskChecklistItems(user: CurrentUser, taskId: number) {
       ),
     )
     .orderBy(asc(taskChecklistItems.position), asc(taskChecklistItems.id));
-}
-
-async function getChecklistCounts(user: CurrentUser, taskIds: number[]) {
-  if (taskIds.length === 0) {
-    return new Map<number, { total: number; completed: number }>();
-  }
-
-  const rows = await db
-    .select({
-      taskId: taskChecklistItems.taskId,
-      total: count(taskChecklistItems.id),
-      completed: sql<number>`sum(case when ${taskChecklistItems.isCompleted} then 1 else 0 end)`,
-    })
-    .from(taskChecklistItems)
-    .where(
-      and(
-        eq(taskChecklistItems.organizationId, user.organizationId),
-        inArray(taskChecklistItems.taskId, taskIds),
-      ),
-    )
-    .groupBy(taskChecklistItems.taskId);
-
-  return new Map(
-    rows.map((row) => [
-      row.taskId,
-      { total: Number(row.total), completed: Number(row.completed ?? 0) },
-    ]),
-  );
 }
 
 async function replaceTaskChecklistItems(
@@ -805,11 +797,33 @@ function getTaskOrderBy(section: "active" | "archive") {
   ] as const;
 }
 
-async function getUserRoleNames(user: CurrentUser) {
+async function getTaskActorContext(user: CurrentUser) {
   const rows = await db
-    .select({ name: roles.name })
+    .select({
+      roleName: roles.name,
+      permissionKey: permissions.key,
+      managedDepartmentId: departments.id,
+      managedDepartmentName: departments.name,
+    })
     .from(userRoles)
     .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .leftJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
+    .leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+    .leftJoin(
+      departmentMembers,
+      and(
+        eq(departmentMembers.userId, user.id),
+        eq(departmentMembers.organizationId, user.organizationId),
+        eq(departmentMembers.isManager, true),
+      ),
+    )
+    .leftJoin(
+      departments,
+      and(
+        eq(departmentMembers.departmentId, departments.id),
+        eq(departments.organizationId, user.organizationId),
+      ),
+    )
     .where(
       and(
         eq(userRoles.userId, user.id),
@@ -818,26 +832,24 @@ async function getUserRoleNames(user: CurrentUser) {
       ),
     );
 
-  return rows.map((row) => row.name);
-}
-
-async function getManagedDepartments(user: CurrentUser) {
-  return db
-    .select({
-      id: departments.id,
-      name: departments.name,
-    })
-    .from(departmentMembers)
-    .innerJoin(departments, eq(departmentMembers.departmentId, departments.id))
-    .where(
-      and(
-        eq(departmentMembers.userId, user.id),
-        eq(departmentMembers.organizationId, user.organizationId),
-        eq(departmentMembers.isManager, true),
-        eq(departments.organizationId, user.organizationId),
-      ),
-    )
-    .orderBy(asc(departments.name));
+  return {
+    roleNames: Array.from(new Set(rows.map((row) => row.roleName))),
+    permissions: new Set(
+      rows.flatMap((row) => (row.permissionKey ? [row.permissionKey] : [])),
+    ),
+    managedDepartments: Array.from(
+      new Map(
+        rows.flatMap((row) =>
+          row.managedDepartmentId && row.managedDepartmentName
+            ? [[row.managedDepartmentId, {
+                id: row.managedDepartmentId,
+                name: row.managedDepartmentName,
+              }]]
+            : [],
+        ),
+      ).values(),
+    ).sort((first, second) => first.name.localeCompare(second.name)),
+  };
 }
 
 async function getDepartmentOptions(
