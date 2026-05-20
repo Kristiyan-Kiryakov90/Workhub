@@ -45,8 +45,7 @@ export const taskPriority = pgEnum("task_priority", [
 export const taskStatus = pgEnum("task_status", [
   "todo",
   "in_progress",
-  "blocked",
-  "done",
+  "completed",
   "cancelled",
 ]);
 
@@ -393,6 +392,7 @@ export const tasks = pgTable(
       .references(() => departments.id, { onDelete: "restrict" }),
     title: varchar("title", { length: 220 }).notNull(),
     description: text("description"),
+    notes: text("notes"),
     status: taskStatus("status").default("todo").notNull(),
     priority: taskPriority("priority").default("medium").notNull(),
     dueDate: date("due_date"),
@@ -410,5 +410,30 @@ export const tasks = pgTable(
     index("tasks_department_status_idx").on(table.departmentId, table.status),
     index("tasks_assigned_to_user_idx").on(table.assignedToUserId),
     index("tasks_due_date_idx").on(table.dueDate),
+  ],
+);
+
+export const taskChecklistItems = pgTable(
+  "task_checklist_items",
+  {
+    id: serial("id").primaryKey(),
+    organizationId: integer("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    isCompleted: boolean("is_completed").default(false).notNull(),
+    position: integer("position").default(0).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index("task_checklist_items_organization_idx").on(table.organizationId),
+    index("task_checklist_items_task_position_idx").on(
+      table.taskId,
+      table.position,
+    ),
   ],
 );

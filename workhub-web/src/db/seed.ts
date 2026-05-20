@@ -61,7 +61,7 @@ type OrganizationSeed = {
     departmentKey: string;
     title: string;
     priority: "low" | "medium" | "high" | "urgent";
-    status: "todo" | "in_progress" | "done";
+    status: "todo" | "in_progress" | "completed";
     dueOffset: number;
     assignedToKey: string;
   }>;
@@ -385,7 +385,7 @@ const seeds: OrganizationSeed[] = [
         departmentKey: "works",
         title: "Check cleanliness reports from South Park",
         priority: "medium",
-        status: "done",
+        status: "completed",
         dueOffset: -1,
         assignedToKey: "stefan",
       },
@@ -642,7 +642,7 @@ const seeds: OrganizationSeed[] = [
         departmentKey: "admin-dept",
         title: "Prepare monthly office supply request",
         priority: "low",
-        status: "done",
+        status: "completed",
         dueOffset: -2,
         assignedToKey: "boris",
       },

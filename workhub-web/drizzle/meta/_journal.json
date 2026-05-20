@@ -22,6 +22,27 @@
       "when": 1779200316237,
       "tag": "0002_workable_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779203225636,
+      "tag": "0003_harsh_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779203761309,
+      "tag": "0004_lying_trish_tilby",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779204849190,
+      "tag": "0005_exotic_scream",
+      "breakpoints": true
     }
   ]
 }
