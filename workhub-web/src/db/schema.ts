@@ -24,6 +24,8 @@ export const leaveRequestType = pgEnum("leave_request_type", [
   "vacation",
   "personal",
   "unpaid",
+  "remote",
+  "training",
   "other",
 ]);
 

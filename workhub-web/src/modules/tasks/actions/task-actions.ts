@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 
 import {
   AuthorizationError,
@@ -376,10 +376,10 @@ export async function deleteChecklistItemInlineAction(input: {
 }
 
 function revalidateTaskCaches(user: Awaited<ReturnType<typeof requireCurrentUser>>) {
-  revalidateTag(`tasks:${user.organizationId}`, "max");
-  revalidateTag(`tasks:${user.organizationId}:${user.id}`, "max");
-  revalidateTag(`dashboard:${user.organizationId}`, "max");
-  revalidateTag(`dashboard:${user.organizationId}:${user.id}`, "max");
+  updateTag(`tasks:${user.organizationId}`);
+  updateTag(`tasks:${user.organizationId}:${user.id}`);
+  updateTag(`dashboard:${user.organizationId}`);
+  updateTag(`dashboard:${user.organizationId}:${user.id}`);
 }
 
 function isTaskStatus(value: string): value is TaskStatus {

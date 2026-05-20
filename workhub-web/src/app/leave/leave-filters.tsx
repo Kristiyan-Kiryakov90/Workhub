@@ -9,30 +9,30 @@ type FilterOption = {
   label: string;
 };
 
-export function TaskFilters({
+export function LeaveFilters({
   search,
   status,
-  priority,
+  type,
   departmentId,
-  assignedToUserId,
+  employeeId,
   statusOptions,
-  priorityOptions,
+  typeOptions,
   departmentOptions,
-  assigneeOptions,
+  employeeOptions,
   showDepartmentFilter,
-  showAssigneeFilter,
+  showEmployeeFilter,
 }: {
   search: string;
   status: string;
-  priority: string;
+  type: string;
   departmentId: string;
-  assignedToUserId: string;
+  employeeId: string;
   statusOptions: FilterOption[];
-  priorityOptions: FilterOption[];
+  typeOptions: FilterOption[];
   departmentOptions: FilterOption[];
-  assigneeOptions: FilterOption[];
+  employeeOptions: FilterOption[];
   showDepartmentFilter: boolean;
-  showAssigneeFilter: boolean;
+  showEmployeeFilter: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -40,9 +40,9 @@ export function TaskFilters({
   const [isPending, startTransition] = useTransition();
   const [searchValue, setSearchValue] = useState(search);
   const [statusValue, setStatusValue] = useState(status);
-  const [priorityValue, setPriorityValue] = useState(priority);
+  const [typeValue, setTypeValue] = useState(type);
   const [departmentValue, setDepartmentValue] = useState(departmentId);
-  const [assigneeValue, setAssigneeValue] = useState(assignedToUserId);
+  const [employeeValue, setEmployeeValue] = useState(employeeId);
 
   const baseParams = useMemo(
     () => new URLSearchParams(searchParams.toString()),
@@ -51,15 +51,15 @@ export function TaskFilters({
   const hasFilters =
     Boolean(search) ||
     Boolean(status) ||
-    Boolean(priority) ||
+    Boolean(type) ||
     Boolean(departmentId) ||
-    Boolean(assignedToUserId);
+    Boolean(employeeId);
   const hasPendingChanges =
     searchValue !== search ||
     statusValue !== status ||
-    priorityValue !== priority ||
+    typeValue !== type ||
     departmentValue !== departmentId ||
-    assigneeValue !== assignedToUserId;
+    employeeValue !== employeeId;
 
   useEffect(() => {
     if (!hasPendingChanges) {
@@ -71,11 +71,12 @@ export function TaskFilters({
       const params = new URLSearchParams(baseParams.toString());
       setParam(params, "search", searchValue.trim());
       setParam(params, "status", statusValue);
-      setParam(params, "priority", priorityValue);
+      setParam(params, "type", typeValue);
       setParam(params, "departmentId", departmentValue);
-      setParam(params, "assignedToUserId", assigneeValue);
-      params.delete("activePage");
-      params.delete("archivePage");
+      setParam(params, "employeeId", employeeValue);
+      params.delete("myPage");
+      params.delete("pendingPage");
+      params.delete("reviewedPage");
 
       startTransition(() => {
         router.replace(params.toString() ? `${pathname}?${params}` : pathname);
@@ -84,34 +85,36 @@ export function TaskFilters({
 
     return () => window.clearTimeout(timeout);
   }, [
-    assigneeValue,
     baseParams,
     departmentValue,
+    employeeValue,
     hasPendingChanges,
     pathname,
-    priorityValue,
     router,
     search,
     searchValue,
     startTransition,
     statusValue,
+    typeValue,
   ]);
 
   return (
     <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Search
-          </span>
-          <input
-            type="search"
-            value={searchValue}
-            onChange={(event) => setSearchValue(event.target.value)}
-            placeholder="Search by title"
-            className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-          />
-        </label>
+        {showEmployeeFilter ? (
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Search
+            </span>
+            <input
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Employee name or email"
+              className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+            />
+          </label>
+        ) : null}
 
         <SelectFilter
           label="Status"
@@ -121,10 +124,10 @@ export function TaskFilters({
         />
 
         <SelectFilter
-          label="Priority"
-          value={priorityValue}
-          options={priorityOptions}
-          onChange={setPriorityValue}
+          label="Type"
+          value={typeValue}
+          options={typeOptions}
+          onChange={setTypeValue}
         />
 
         {showDepartmentFilter ? (
@@ -136,12 +139,12 @@ export function TaskFilters({
           />
         ) : null}
 
-        {showAssigneeFilter ? (
+        {showEmployeeFilter ? (
           <SelectFilter
-            label="Assigned Employee"
-            value={assigneeValue}
-            options={assigneeOptions}
-            onChange={setAssigneeValue}
+            label="Employee"
+            value={employeeValue}
+            options={employeeOptions}
+            onChange={setEmployeeValue}
           />
         ) : null}
       </div>
@@ -149,7 +152,7 @@ export function TaskFilters({
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {hasFilters ? (
           <Link
-            href="/tasks"
+            href="/leave"
             className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
           >
             Reset

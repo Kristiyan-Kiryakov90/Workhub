@@ -13,6 +13,7 @@ const publicNavigation = [
 const appNavigation = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/tasks", label: "Tasks" },
+  { href: "/leave", label: "Leaves" },
 ];
 
 export async function PublicHeader() {

@@ -402,7 +402,7 @@ function LeaveRequestCard({
         <h3 className="text-sm font-semibold leading-5 text-slate-950">
           {formatLabel(type)} leave
         </h3>
-        <Badge tone={status === "pending" ? "warning" : "neutral"}>
+        <Badge tone={leaveStatusTone(status)}>
           {formatLabel(status)}
         </Badge>
       </div>
@@ -481,7 +481,7 @@ function AdminLeaveCard({
         <h3 className="text-sm font-semibold leading-5 text-slate-950">
           {employeeName}
         </h3>
-        <Badge tone="warning">{formatLabel(status)}</Badge>
+        <Badge tone={leaveStatusTone(status)}>{formatLabel(status)}</Badge>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <Badge tone="neutral">{department}</Badge>
@@ -499,12 +499,13 @@ function Badge({
   tone,
 }: {
   children: React.ReactNode;
-  tone: "danger" | "info" | "neutral" | "warning";
+  tone: "danger" | "info" | "neutral" | "success" | "warning";
 }) {
   const classes = {
     danger: "border-red-200 bg-red-50 text-red-700",
     info: "border-cyan-200 bg-cyan-50 text-cyan-700",
     neutral: "border-slate-200 bg-slate-50 text-slate-700",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
     warning: "border-amber-200 bg-amber-50 text-amber-700",
   };
 
@@ -515,6 +516,18 @@ function Badge({
       {children}
     </span>
   );
+}
+
+function leaveStatusTone(status: string) {
+  if (status === "approved") {
+    return "success";
+  }
+
+  if (status === "rejected") {
+    return "danger";
+  }
+
+  return "warning";
 }
 
 function formatLabel(value: string) {

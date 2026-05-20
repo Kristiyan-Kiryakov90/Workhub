@@ -60,6 +60,7 @@ export default async function TasksPage({
       </div>
 
       <TaskFilters
+        key={stableTaskFiltersKey(data.filters)}
         search={data.filters.search ?? ""}
         status={data.filters.status ?? ""}
         priority={data.filters.priority ?? ""}

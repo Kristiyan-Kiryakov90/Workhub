@@ -43,6 +43,13 @@
       "when": 1779204849190,
       "tag": "0005_exotic_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779249739202,
+      "tag": "0006_sour_triathlon",
+      "breakpoints": true
     }
   ]
 }

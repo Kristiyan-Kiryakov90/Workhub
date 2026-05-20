@@ -38,7 +38,7 @@ type OrganizationSeed = {
   leaveRequests: Array<{
     departmentKey: string;
     userKey: string;
-    type: "sick" | "vacation" | "personal";
+    type: "sick" | "vacation" | "unpaid" | "remote" | "personal" | "training";
     startOffset: number;
     endOffset: number;
     status: "pending" | "approved" | "rejected";
@@ -263,21 +263,21 @@ const seeds: OrganizationSeed[] = [
       {
         departmentKey: "transport",
         userKey: "radostina",
-        type: "personal",
+        type: "remote",
         startOffset: 6,
         endOffset: 6,
         status: "pending",
-        reason: "Personal appointment.",
+        reason: "Remote work day for focused documentation.",
       },
       {
         departmentKey: "transport",
         userKey: "nikolay",
-        type: "sick",
+        type: "training",
         startOffset: -5,
         endOffset: -3,
         status: "approved",
         reviewedByKey: "ivan",
-        reviewComment: "Approved after medical document review.",
+        reviewComment: "Approved for required route safety training.",
       },
     ],
     shifts: [
@@ -540,7 +540,7 @@ const seeds: OrganizationSeed[] = [
       {
         departmentKey: "admin-dept",
         userKey: "boris",
-        type: "personal",
+        type: "unpaid",
         startOffset: -8,
         endOffset: -8,
         status: "approved",
