@@ -111,7 +111,7 @@ export async function reviewLeaveRequestAction(formData: FormData) {
   revalidatePath("/leave");
   revalidatePath(returnPath);
   revalidateLeaveCaches(user);
-  redirect("/leave");
+  redirect(returnPath);
 }
 
 function revalidateLeaveCaches(user: Awaited<ReturnType<typeof requireCurrentUser>>) {

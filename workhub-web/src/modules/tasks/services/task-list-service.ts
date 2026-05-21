@@ -26,6 +26,10 @@ import {
   users,
 } from "@/db/schema";
 import type { CurrentUser } from "@/modules/auth/types";
+import {
+  createOrMergeNotificationForKnownRecipient,
+  createNotificationForKnownRecipient,
+} from "@/modules/notifications/services/notification-service";
 
 export const taskStatuses = [
   "todo",
@@ -208,6 +212,22 @@ export async function updateTaskDetails(
   input: UpdateTaskDetailsInput,
 ) {
   if (input.title !== undefined) {
+    const [existingTask] = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        notes: tasks.notes,
+        status: tasks.status,
+        priority: tasks.priority,
+        departmentId: tasks.departmentId,
+        dueDate: tasks.dueDate,
+        assignedToUserId: tasks.assignedToUserId,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)))
+      .limit(1);
+
     if (!input.title || input.title.length > 220) {
       return { ok: false, error: "Enter a task title up to 220 characters." };
     }
@@ -250,12 +270,84 @@ export async function updateTaskDetails(
       return { ok: false, error: "You do not have access to update this task." };
     }
 
+    if (
+      input.assignedToUserId &&
+      input.assignedToUserId !== user.id &&
+      input.assignedToUserId !== existingTask?.assignedToUserId
+    ) {
+      const changeSummary = existingTask
+        ? buildTaskChangeSummary(existingTask, {
+            title: input.title,
+            description: input.description ?? null,
+            notes: input.notes,
+            status: input.status,
+            priority: input.priority,
+            departmentId: input.departmentId,
+            assignedToUserId: input.assignedToUserId,
+            dueDate: input.dueDate ?? null,
+          })
+        : "";
+
+      await createNotificationForKnownRecipient({
+        organizationId: user.organizationId,
+        userId: input.assignedToUserId,
+        type: "task_assigned",
+        title: "New task assigned",
+        message: changeSummary
+          ? `You were assigned to "${input.title}". ${changeSummary}`
+          : `You were assigned to "${input.title}".`,
+        relatedEntityType: "task",
+        relatedEntityId: input.taskId,
+        actionUrl: `/tasks/${input.taskId}`,
+      });
+    } else if (
+      existingTask?.assignedToUserId &&
+      existingTask.assignedToUserId !== user.id
+    ) {
+      const changeSummary = buildTaskChangeSummary(existingTask, {
+        title: input.title,
+        description: input.description ?? null,
+        notes: input.notes,
+        status: input.status,
+        priority: input.priority,
+        departmentId: input.departmentId,
+        assignedToUserId: input.assignedToUserId ?? null,
+        dueDate: input.dueDate ?? null,
+      });
+
+      if (changeSummary) {
+        await createOrMergeNotificationForKnownRecipient({
+          organizationId: user.organizationId,
+          userId: existingTask.assignedToUserId,
+          type: "task_updated",
+          title: "Task updated",
+          message: `"${input.title}" was updated. ${changeSummary}`,
+          relatedEntityType: "task",
+          relatedEntityId: input.taskId,
+          actionUrl: `/tasks/${input.taskId}`,
+        });
+      }
+    }
+
     if (input.checklistItems) {
       await replaceTaskChecklistItems(user, input.taskId, input.checklistItems);
     }
 
     return { ok: true };
   }
+
+  const [existingTask] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      notes: tasks.notes,
+      createdByUserId: tasks.createdByUserId,
+      assignedToUserId: tasks.assignedToUserId,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, user.organizationId)))
+    .limit(1);
 
   const [updatedTask] = await db
     .update(tasks)
@@ -271,10 +363,64 @@ export async function updateTaskDetails(
         canEditTaskSql(user),
       ),
     )
-    .returning({ id: tasks.id });
+    .returning({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      createdByUserId: tasks.createdByUserId,
+      assignedToUserId: tasks.assignedToUserId,
+    });
 
   if (!updatedTask) {
     return { ok: false, error: "You do not have access to update this task." };
+  }
+
+  if (updatedTask.assignedToUserId && updatedTask.assignedToUserId !== user.id) {
+    const changeSummary = existingTask
+      ? buildTaskChangeSummary(existingTask, {
+          status: input.status,
+          notes: input.notes,
+        })
+      : "";
+
+    if (changeSummary) {
+      await createOrMergeNotificationForKnownRecipient({
+        organizationId: user.organizationId,
+        userId: updatedTask.assignedToUserId,
+        type: "task_updated",
+        title: "Task updated",
+        message: `"${updatedTask.title}" was updated. ${changeSummary}`,
+        relatedEntityType: "task",
+        relatedEntityId: updatedTask.id,
+        actionUrl: `/tasks/${updatedTask.id}`,
+      });
+    }
+  } else if (updatedTask.assignedToUserId === user.id && updatedTask.createdByUserId !== user.id) {
+    const changeSummary = existingTask
+      ? buildTaskChangeSummary(existingTask, {
+          status: input.status,
+          notes: input.notes,
+        })
+      : "";
+
+    if (changeSummary) {
+      await createOrMergeNotificationForKnownRecipient({
+        organizationId: user.organizationId,
+        userId: updatedTask.createdByUserId,
+        type: "task_updated",
+        title:
+          updatedTask.status === "completed"
+            ? "Task completed"
+            : "Task updated",
+        message:
+          updatedTask.status === "completed"
+            ? `${user.name} completed "${updatedTask.title}". ${changeSummary}`
+            : `${user.name} updated "${updatedTask.title}". ${changeSummary}`,
+        relatedEntityType: "task",
+        relatedEntityId: updatedTask.id,
+        actionUrl: `/tasks/${updatedTask.id}`,
+      });
+    }
   }
 
   return { ok: true };
@@ -286,7 +432,11 @@ export async function toggleTaskChecklistItem(
 ) {
   const [itemRows, access] = await Promise.all([
     db
-      .select({ id: taskChecklistItems.id, taskId: taskChecklistItems.taskId })
+      .select({
+        id: taskChecklistItems.id,
+        taskId: taskChecklistItems.taskId,
+        title: taskChecklistItems.title,
+      })
       .from(taskChecklistItems)
       .where(
         and(
@@ -317,6 +467,14 @@ export async function toggleTaskChecklistItem(
         eq(taskChecklistItems.organizationId, user.organizationId),
       ),
     );
+
+  await notifyTaskChecklistUpdate(
+    user,
+    input.taskId,
+    `Checklist item "${item.title}" marked ${
+      input.isCompleted ? "completed" : "incomplete"
+    }.`,
+  );
 
   return { ok: true };
 }
@@ -358,6 +516,12 @@ export async function addTaskChecklistItem(
       position: taskChecklistItems.position,
     });
 
+  await notifyTaskChecklistUpdate(
+    user,
+    input.taskId,
+    `Checklist item "${input.title}" added.`,
+  );
+
   return { ok: true, item };
 }
 
@@ -371,6 +535,18 @@ export async function deleteTaskChecklistItem(
     return { ok: false };
   }
 
+  const [item] = await db
+    .select({ title: taskChecklistItems.title })
+    .from(taskChecklistItems)
+    .where(
+      and(
+        eq(taskChecklistItems.id, input.itemId),
+        eq(taskChecklistItems.taskId, input.taskId),
+        eq(taskChecklistItems.organizationId, user.organizationId),
+      ),
+    )
+    .limit(1);
+
   await db
     .delete(taskChecklistItems)
     .where(
@@ -380,6 +556,14 @@ export async function deleteTaskChecklistItem(
         eq(taskChecklistItems.organizationId, user.organizationId),
       ),
     );
+
+  if (item) {
+    await notifyTaskChecklistUpdate(
+      user,
+      input.taskId,
+      `Checklist item "${item.title}" deleted.`,
+    );
+  }
 
   return { ok: true };
 }
@@ -505,6 +689,19 @@ export async function createTask(user: CurrentUser, input: CreateTaskInput) {
 
   if (input.checklistItems.length > 0) {
     await insertTaskChecklistItems(user, task.id, input.checklistItems);
+  }
+
+  if (input.assignedToUserId && input.assignedToUserId !== user.id) {
+    await createNotificationForKnownRecipient({
+      organizationId: user.organizationId,
+      userId: input.assignedToUserId,
+      type: "task_assigned",
+      title: "New task assigned",
+      message: `You were assigned to "${input.title}".`,
+      relatedEntityType: "task",
+      relatedEntityId: task.id,
+      actionUrl: `/tasks/${task.id}`,
+    });
   }
 
   return { ok: true, taskId: task.id };
@@ -769,6 +966,47 @@ async function insertTaskChecklistItems(
   await db.insert(taskChecklistItems).values(values);
 }
 
+async function notifyTaskChecklistUpdate(
+  user: CurrentUser,
+  taskId: number,
+  changeDescription: string,
+) {
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      createdByUserId: tasks.createdByUserId,
+      assignedToUserId: tasks.assignedToUserId,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, user.organizationId)))
+    .limit(1);
+
+  if (!task) {
+    return;
+  }
+
+  const recipientId =
+    task.assignedToUserId === user.id
+      ? task.createdByUserId
+      : task.assignedToUserId;
+
+  if (!recipientId || recipientId === user.id) {
+    return;
+  }
+
+  await createOrMergeNotificationForKnownRecipient({
+    organizationId: user.organizationId,
+    userId: recipientId,
+    type: "task_updated",
+    title: "Task updated",
+    message: `${user.name} updated "${task.title}". Changes: ${changeDescription}`,
+    relatedEntityType: "task",
+    relatedEntityId: task.id,
+    actionUrl: `/tasks/${task.id}`,
+  });
+}
+
 function buildTaskWhere(
   user: CurrentUser,
   filters: TaskListFilters,
@@ -839,6 +1077,108 @@ function getTaskOrderBy(section: "active" | "archive") {
     desc(tasks.createdAt),
     desc(tasks.id),
   ] as const;
+}
+
+function buildTaskChangeSummary(
+  previous: {
+    title?: string;
+    description?: string | null;
+    notes?: string | null;
+    status?: string;
+    priority?: string;
+    departmentId?: number;
+    assignedToUserId?: number | null;
+    dueDate?: string | null;
+  },
+  next: {
+    title?: string;
+    description?: string | null;
+    notes?: string | null;
+    status?: string;
+    priority?: string;
+    departmentId?: number;
+    assignedToUserId?: number | null;
+    dueDate?: string | null;
+  },
+) {
+  const changes: string[] = [];
+
+  if (next.title !== undefined && next.title !== previous.title) {
+    changes.push(`Title changed from "${previous.title}" to "${next.title}"`);
+  }
+
+  if (next.status !== undefined && next.status !== previous.status) {
+    changes.push(
+      `Status changed from ${formatTaskValue(previous.status)} to ${formatTaskValue(next.status)}`,
+    );
+  }
+
+  if (next.priority !== undefined && next.priority !== previous.priority) {
+    changes.push(
+      `Priority changed from ${formatTaskValue(previous.priority)} to ${formatTaskValue(next.priority)}`,
+    );
+  }
+
+  if (
+    next.dueDate !== undefined &&
+    normalizeNullableValue(next.dueDate) !== normalizeNullableValue(previous.dueDate)
+  ) {
+    changes.push(
+      `Due date changed from ${formatTaskDate(previous.dueDate)} to ${formatTaskDate(next.dueDate)}`,
+    );
+  }
+
+  if (
+    next.departmentId !== undefined &&
+    previous.departmentId !== undefined &&
+    next.departmentId !== previous.departmentId
+  ) {
+    changes.push("Department changed");
+  }
+
+  if (
+    next.assignedToUserId !== undefined &&
+    normalizeNullableValue(next.assignedToUserId) !==
+      normalizeNullableValue(previous.assignedToUserId)
+  ) {
+    changes.push("Assignee changed");
+  }
+
+  if (
+    next.description !== undefined &&
+    normalizeNullableValue(next.description) !==
+      normalizeNullableValue(previous.description)
+  ) {
+    changes.push("Description updated");
+  }
+
+  if (
+    next.notes !== undefined &&
+    normalizeNullableValue(next.notes) !== normalizeNullableValue(previous.notes)
+  ) {
+    changes.push(next.notes ? "Notes updated" : "Notes cleared");
+  }
+
+  return changes.length > 0 ? `Changes: ${changes.join("; ")}.` : "";
+}
+
+function normalizeNullableValue(value: string | number | null | undefined) {
+  return value ?? null;
+}
+
+function formatTaskDate(value: string | null | undefined) {
+  return value ? value : "not set";
+}
+
+function formatTaskValue(value: string | null | undefined) {
+  return value ? formatLabel(value) : "not set";
+}
+
+function formatLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 async function getTaskActorContext(user: CurrentUser) {

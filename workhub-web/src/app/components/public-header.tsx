@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { logoutAction } from "@/modules/auth/actions/auth-actions";
 import { createCsrfToken } from "@/modules/auth/services/csrf-service";
-import { getCurrentSessionPayload } from "@/modules/auth/services/session-service";
+import { getCurrentUser } from "@/modules/auth/services/session-service";
+import type { CurrentUser } from "@/modules/auth/types";
+import { getUnreadNotificationCount } from "@/modules/notifications/services/notification-service";
 import { MobileNavigation, type HeaderUser } from "./mobile-navigation";
 
 const publicNavigation = [
@@ -18,14 +21,19 @@ const appNavigation = [
 ];
 
 export async function PublicHeader() {
-  const currentSession = await getCurrentSessionPayload();
+  const currentSession = await getCurrentUser();
   const currentUser = currentSession
     ? ({
         name: currentSession.name ?? currentSession.email,
         organizationName: currentSession.organizationName ?? "WorkHub",
       } satisfies HeaderUser)
     : null;
-  const logoutCsrfToken = currentUser ? await createCsrfToken("logout") : null;
+  const [logoutCsrfToken, unreadNotificationCount] = currentSession
+    ? await Promise.all([
+        createCsrfToken("logout"),
+        getCachedUnreadNotificationCount(currentSession),
+      ])
+    : [null, 0];
   const navigation = currentUser ? appNavigation : publicNavigation;
 
   return (
@@ -53,6 +61,13 @@ export async function PublicHeader() {
           ))}
           {currentUser ? (
             <div className="ml-2 flex items-center gap-3 border-l border-slate-200 pl-4">
+              <Link
+                href="/notifications"
+                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+              >
+                Notifications
+                {unreadNotificationCount > 0 ? ` (${unreadNotificationCount})` : ""}
+              </Link>
               <div className="text-right">
                 <p className="text-sm font-semibold leading-5 text-slate-950">
                   {currentUser.name}
@@ -84,8 +99,20 @@ export async function PublicHeader() {
           navigation={navigation}
           currentUser={currentUser}
           logoutCsrfToken={logoutCsrfToken}
+          unreadNotificationCount={unreadNotificationCount}
         />
       </div>
     </header>
   );
+}
+
+async function getCachedUnreadNotificationCount(user: CurrentUser) {
+  return unstable_cache(
+    async () => getUnreadNotificationCount(user),
+    ["header-unread-notifications", String(user.organizationId), String(user.id)],
+    {
+      revalidate: 30,
+      tags: [`notifications:${user.organizationId}:${user.id}`],
+    },
+  )();
 }

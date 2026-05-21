@@ -331,6 +331,26 @@ export const leaveRequests = pgTable(
       table.startDate,
       table.endDate,
     ),
+    index("leave_requests_organization_user_created_idx").on(
+      table.organizationId,
+      table.userId,
+      table.createdAt,
+    ),
+    index("leave_requests_organization_status_created_idx").on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
+    index("leave_requests_organization_department_status_created_idx").on(
+      table.organizationId,
+      table.departmentId,
+      table.status,
+      table.createdAt,
+    ),
+    index("leave_requests_organization_reviewed_at_idx").on(
+      table.organizationId,
+      table.reviewedAt,
+    ),
     index("leave_requests_start_date_idx").on(table.startDate),
   ],
 );
@@ -479,6 +499,45 @@ export const taskChecklistItems = pgTable(
     index("task_checklist_items_task_position_idx").on(
       table.taskId,
       table.position,
+    ),
+  ],
+);
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: serial("id").primaryKey(),
+    organizationId: integer("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 80 }).notNull(),
+    title: varchar("title", { length: 180 }).notNull(),
+    message: text("message").notNull(),
+    relatedEntityType: varchar("related_entity_type", { length: 80 }),
+    relatedEntityId: integer("related_entity_id"),
+    actionUrl: text("action_url"),
+    isRead: boolean("is_read").default(false).notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("notifications_organization_user_created_idx").on(
+      table.organizationId,
+      table.userId,
+      table.createdAt,
+    ),
+    index("notifications_organization_user_read_created_idx").on(
+      table.organizationId,
+      table.userId,
+      table.isRead,
+      table.createdAt,
+    ),
+    index("notifications_organization_type_idx").on(
+      table.organizationId,
+      table.type,
     ),
   ],
 );

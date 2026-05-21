@@ -1,0 +1,4 @@
+CREATE INDEX "leave_requests_organization_user_created_idx" ON "leave_requests" USING btree ("organization_id","user_id","created_at");--> statement-breakpoint
+CREATE INDEX "leave_requests_organization_status_created_idx" ON "leave_requests" USING btree ("organization_id","status","created_at");--> statement-breakpoint
+CREATE INDEX "leave_requests_organization_department_status_created_idx" ON "leave_requests" USING btree ("organization_id","department_id","status","created_at");--> statement-breakpoint
+CREATE INDEX "leave_requests_organization_reviewed_at_idx" ON "leave_requests" USING btree ("organization_id","reviewed_at");

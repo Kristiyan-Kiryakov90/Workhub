@@ -30,10 +30,10 @@ export function ShiftCalendar({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <CalendarLink href={`${baseHref}?month=${data.previousMonth}`}>
+          <CalendarLink href={calendarHref(baseHref, data.previousMonth)}>
             Previous
           </CalendarLink>
-          <CalendarLink href={`${baseHref}?month=${data.nextMonth}`}>
+          <CalendarLink href={calendarHref(baseHref, data.nextMonth)}>
             Next
           </CalendarLink>
           {data.canCreateShift ? (
@@ -47,29 +47,35 @@ export function ShiftCalendar({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-          <div key={day} className="px-3 py-2">
-            {day}
+      <div className="overflow-x-auto">
+        <div className="min-w-full md:min-w-[760px]">
+          <div className="hidden grid-cols-7 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 md:grid">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+              <div key={day} className="min-w-0 px-2 py-2 lg:px-3">
+                {day}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-7">
-        {days.map((day) => (
-          <CalendarDay
-            key={day.iso}
-            day={day}
-            shifts={data.shifts.filter((shift) => sameDay(shift.startTime, day.iso))}
-            leaves={data.leaves.filter((leave) =>
-              day.iso >= leave.startDate && day.iso <= leave.endDate,
-            )}
-            currentMonth={day.iso.startsWith(data.month)}
-            shiftHrefPrefix={shiftHrefPrefix}
-            leaveHrefPrefix={leaveHrefPrefix}
-            canCreateShift={data.canCreateShift}
-          />
-        ))}
+          <div className="grid grid-cols-1 md:grid-cols-7">
+            {days.map((day) => (
+              <CalendarDay
+                key={day.iso}
+                day={day}
+                shifts={data.shifts.filter((shift) =>
+                  sameDay(shift.startTime, day.iso),
+                )}
+                leaves={data.leaves.filter((leave) =>
+                  day.iso >= leave.startDate && day.iso <= leave.endDate,
+                )}
+                currentMonth={day.iso.startsWith(data.month)}
+                shiftHrefPrefix={shiftHrefPrefix}
+                leaveHrefPrefix={leaveHrefPrefix}
+                canCreateShift={data.canCreateShift}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -92,30 +98,41 @@ function CalendarDay({
   leaveHrefPrefix: "/leave" | "/manager/leave" | "/admin/leave";
   canCreateShift: boolean;
 }) {
+  const visibleLeaves = leaves.slice(0, 2);
+  const hiddenLeavesCount = Math.max(leaves.length - visibleLeaves.length, 0);
+  const visibleShifts = shifts.slice(0, 3);
+  const hiddenShiftsCount = Math.max(shifts.length - visibleShifts.length, 0);
+
   return (
     <div
       className={[
-        "min-h-40 border-b border-slate-200 p-3 sm:border-r",
+        "min-w-0 border-b border-slate-200 p-3 md:min-h-36 md:p-2 md:[&:not(:nth-child(7n))]:border-r lg:min-h-40 lg:p-3",
         currentMonth ? "bg-white" : "bg-slate-50 text-slate-400",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
         {canCreateShift && currentMonth ? (
           <Link
             href={`/shifts/new?date=${day.iso}`}
-            className="inline-flex h-7 min-w-7 items-center justify-center rounded-md text-sm font-semibold text-slate-950 transition hover:bg-cyan-50 hover:text-cyan-700"
+            className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-sm font-semibold text-slate-950 transition hover:bg-cyan-50 hover:text-cyan-700"
             title={`Create shift on ${day.iso}`}
           >
             {day.label}
           </Link>
         ) : (
-          <span className="text-sm font-semibold text-slate-950">{day.label}</span>
+          <span className="shrink-0 text-sm font-semibold text-slate-950">
+            {day.label}
+          </span>
         )}
 
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
           {leaves.length > 0 ? (
-            <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
-              {leaves.length} leave
+            <span
+              className="max-w-full truncate rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700"
+              title={`${leaves.length} leave request${leaves.length === 1 ? "" : "s"}`}
+            >
+              {leaves.length}
+              <span className="ml-1 hidden lg:inline">leave</span>
             </span>
           ) : null}
           {canCreateShift && currentMonth ? (
@@ -123,7 +140,11 @@ function CalendarDay({
               href={`/shifts/new?date=${day.iso}`}
               className="rounded-md border border-cyan-200 bg-cyan-50 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-700 transition hover:bg-cyan-100"
             >
-              Add
+              <span aria-hidden="true" className="lg:hidden">
+                +
+              </span>
+              <span className="hidden lg:inline">Add</span>
+              <span className="sr-only">Add shift on {day.iso}</span>
             </Link>
           ) : null}
         </div>
@@ -131,46 +152,66 @@ function CalendarDay({
 
       {leaves.length > 0 ? (
         <div className="mt-2 space-y-1">
-          {leaves.map((leave) => (
+          {visibleLeaves.map((leave) => (
             <Link
               key={leave.id}
               href={`${leaveHrefPrefix}/${leave.id}`}
-              className="block rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800 transition hover:border-amber-300 hover:bg-amber-100"
+              className="block min-w-0 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-4 text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 md:px-1.5 lg:px-2"
             >
               <span className="block truncate font-semibold">
                 {leave.employeeName}
               </span>
-              <span className="block truncate">
+              <span className="block truncate md:hidden xl:block">
                 {formatLabel(leave.type)} leave, {formatLabel(leave.status)}
               </span>
             </Link>
           ))}
+          {hiddenLeavesCount > 0 ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1 text-xs font-semibold text-amber-700">
+              +{hiddenLeavesCount} more leave
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {shifts.length > 0 ? (
         <div className="mt-2 space-y-1.5">
-          {shifts.map((shift) => (
+          {visibleShifts.map((shift) => (
             <Link
               key={shift.id}
               href={`${shiftHrefPrefix}/${shift.id}`}
               className={[
-                "block rounded-md border px-2 py-1.5 text-xs transition",
+                "block min-w-0 rounded-md border px-2 py-1.5 text-xs leading-4 transition md:px-1.5 lg:px-2",
                 shiftColorClasses[shift.color as ShiftColorKey] ??
                   shiftColorClasses.cyan,
               ].join(" ")}
             >
-              <span className="block truncate font-semibold">{shift.title}</span>
+              <span className="flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate font-semibold">{shift.title}</span>
+                <span
+                  className="shrink-0 rounded border border-current/20 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold leading-none"
+                  title={`${shift.assignedEmployeeNames.length} assigned employee${
+                    shift.assignedEmployeeNames.length === 1 ? "" : "s"
+                  }`}
+                >
+                  {shift.assignedEmployeeNames.length}
+                </span>
+              </span>
               <span className="block truncate">
                 {formatTime(shift.startTime)} {shift.departmentName}
               </span>
-              <span className="mt-1 block text-[11px] leading-4 opacity-85">
+              <span className="mt-1 block truncate text-[11px] leading-4 opacity-85 md:hidden xl:block">
                 {shift.assignedEmployeeNames.length > 0
                   ? shift.assignedEmployeeNames.join(", ")
-                  : "Unassigned"}
+                : "Unassigned"}
               </span>
             </Link>
           ))}
+          {hiddenShiftsCount > 0 ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+              +{hiddenShiftsCount} more shifts
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -219,6 +260,12 @@ function CalendarLink({
       {children}
     </Link>
   );
+}
+
+function calendarHref(baseHref: string, month: string) {
+  const separator = baseHref.includes("?") ? "&" : "?";
+
+  return `${baseHref}${separator}month=${month}`;
 }
 
 function monthGridDays(month: string) {

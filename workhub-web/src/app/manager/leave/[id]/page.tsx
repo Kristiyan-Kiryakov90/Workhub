@@ -35,7 +35,8 @@ export default async function ManagerLeaveDetailsPage({
     notFound();
   }
 
-  const csrfToken = await createCsrfToken("leave.review");
+  const csrfToken =
+    request.status === "pending" ? await createCsrfToken("leave.review") : "";
   const error = firstParam(query.error);
 
   return (

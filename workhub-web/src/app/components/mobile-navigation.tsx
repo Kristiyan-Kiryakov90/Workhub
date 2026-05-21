@@ -19,10 +19,12 @@ export function MobileNavigation({
   navigation,
   currentUser,
   logoutCsrfToken,
+  unreadNotificationCount,
 }: {
   navigation: NavigationItem[];
   currentUser: HeaderUser | null;
   logoutCsrfToken: string | null;
+  unreadNotificationCount: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -60,6 +62,14 @@ export function MobileNavigation({
           ))}
           {currentUser ? (
             <div className="border-t border-slate-200 px-3 py-3">
+              <Link
+                href="/notifications"
+                onClick={() => setIsOpen(false)}
+                className="mb-3 block rounded-md px-0 py-2 text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+              >
+                Notifications
+                {unreadNotificationCount > 0 ? ` (${unreadNotificationCount})` : ""}
+              </Link>
               <p className="text-sm font-semibold text-slate-950">
                 {currentUser.name}
               </p>

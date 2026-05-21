@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useRef, useState, useTransition } from "react";
 
 import {
   addChecklistItemInlineAction,
@@ -34,11 +34,20 @@ export function TaskChecklist({
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const inFlightOperations = useRef(new Set<string>());
+  const temporaryId = useRef(-1);
 
   function toggleItem(itemId: number, isCompleted: boolean) {
+    const operationKey = `toggle:${itemId}`;
+
+    if (inFlightOperations.current.has(operationKey)) {
+      return;
+    }
+
     const previousItems = items;
     const nextValue = !isCompleted;
 
+    inFlightOperations.current.add(operationKey);
     setError(null);
     setItems((current) =>
       current.map((item) =>
@@ -58,6 +67,8 @@ export function TaskChecklist({
         setItems(previousItems);
         setError(checklistErrorMessage(result.error));
       }
+
+      inFlightOperations.current.delete(operationKey);
     });
   }
 
@@ -66,7 +77,14 @@ export function TaskChecklist({
       return;
     }
 
+    const operationKey = `delete:${itemId}`;
+
+    if (inFlightOperations.current.has(operationKey)) {
+      return;
+    }
+
     const previousItems = items;
+    inFlightOperations.current.add(operationKey);
     setError(null);
     setItems((current) => current.filter((item) => item.id !== itemId));
 
@@ -81,6 +99,8 @@ export function TaskChecklist({
         setItems(previousItems);
         setError(checklistErrorMessage(result.error));
       }
+
+      inFlightOperations.current.delete(operationKey);
     });
   }
 
@@ -97,14 +117,21 @@ export function TaskChecklist({
       return;
     }
 
+    const operationKey = `add:${trimmedTitle.toLowerCase()}`;
+
+    if (inFlightOperations.current.has(operationKey)) {
+      return;
+    }
+
     const temporaryItem: ChecklistItem = {
-      id: -Date.now(),
+      id: temporaryId.current--,
       title: trimmedTitle,
       isCompleted: false,
       position: items.length,
     };
     const previousItems = items;
 
+    inFlightOperations.current.add(operationKey);
     setError(null);
     setTitle("");
     setItems((current) => [...current, temporaryItem]);
@@ -127,6 +154,8 @@ export function TaskChecklist({
         setTitle(trimmedTitle);
         setError(checklistErrorMessage(result.error));
       }
+
+      inFlightOperations.current.delete(operationKey);
     });
   }
 

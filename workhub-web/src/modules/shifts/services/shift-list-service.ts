@@ -30,6 +30,7 @@ import {
   users,
 } from "@/db/schema";
 import type { CurrentUser } from "@/modules/auth/types";
+import { createNotifications } from "@/modules/notifications/services/notification-service";
 
 export const shiftStatuses = ["scheduled", "completed", "cancelled"] as const;
 export const shiftDateRanges = ["upcoming", "today", "this_week", "this_month"] as const;
@@ -432,6 +433,20 @@ export async function createShift(user: CurrentUser, input: CreateShiftInput) {
     .returning({ id: shifts.id });
 
   await replaceShiftAssignments(user, shift.id, input.assignedUserIds);
+  await createNotifications(
+    input.assignedUserIds
+      .filter((userId) => userId !== user.id)
+      .map((userId) => ({
+        organizationId: user.organizationId,
+        userId,
+        type: "shift_assigned",
+        title: "New shift assigned",
+        message: `You were assigned to ${input.title}.`,
+        relatedEntityType: "shift",
+        relatedEntityId: shift.id,
+        actionUrl: `/shifts/${shift.id}`,
+      })),
+  );
 
   return { ok: true, shiftId: shift.id };
 }
@@ -453,6 +468,10 @@ export async function updateShift(user: CurrentUser, input: UpdateShiftInput) {
     return { ok: false, error: "You do not have access to update this shift." };
   }
 
+  const previousAssignedUserIds = await getShiftAssignedUserIds(
+    user,
+    input.shiftId,
+  );
   const access = await validateShiftWriteAccess(user, input);
 
   if (!access.ok) {
@@ -499,6 +518,36 @@ export async function updateShift(user: CurrentUser, input: UpdateShiftInput) {
     );
 
   await replaceShiftAssignments(user, input.shiftId, input.assignedUserIds);
+  const previousAssignedUserIdSet = new Set(previousAssignedUserIds);
+  const notificationType =
+    input.status === "cancelled" ? "shift_cancelled" : "shift_updated";
+
+  await createNotifications(
+    input.assignedUserIds
+      .filter((userId) => userId !== user.id)
+      .map((userId) => ({
+        organizationId: user.organizationId,
+        userId,
+        type: previousAssignedUserIdSet.has(userId)
+          ? notificationType
+          : "shift_assigned",
+        title:
+          input.status === "cancelled"
+            ? "Shift cancelled"
+            : previousAssignedUserIdSet.has(userId)
+              ? "Shift updated"
+              : "New shift assigned",
+        message:
+          input.status === "cancelled"
+            ? "Your shift schedule has been cancelled."
+            : previousAssignedUserIdSet.has(userId)
+              ? "Your shift schedule has changed."
+              : `You were assigned to ${input.title}.`,
+        relatedEntityType: "shift",
+        relatedEntityId: input.shiftId,
+        actionUrl: `/shifts/${input.shiftId}`,
+      })),
+  );
 
   return { ok: true, shiftId: input.shiftId };
 }
@@ -1108,6 +1157,20 @@ async function replaceShiftAssignments(
       assignedByUserId: user.id,
     })),
   );
+}
+
+async function getShiftAssignedUserIds(user: CurrentUser, shiftId: number) {
+  const rows = await db
+    .select({ userId: shiftAssignments.userId })
+    .from(shiftAssignments)
+    .where(
+      and(
+        eq(shiftAssignments.organizationId, user.organizationId),
+        eq(shiftAssignments.shiftId, shiftId),
+      ),
+    );
+
+  return rows.map((row) => row.userId);
 }
 
 function parseMonthStart(value: string | undefined) {

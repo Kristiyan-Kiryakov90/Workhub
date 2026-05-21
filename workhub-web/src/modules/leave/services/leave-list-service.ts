@@ -3,7 +3,6 @@ import "server-only";
 import {
   and,
   asc,
-  count,
   desc,
   eq,
   ilike,
@@ -26,6 +25,11 @@ import {
 } from "@/db/schema";
 import { alias } from "drizzle-orm/pg-core";
 import type { CurrentUser } from "@/modules/auth/types";
+import {
+  createNotificationForKnownRecipient,
+  createNotifications,
+  getDepartmentManagerIds,
+} from "@/modules/notifications/services/notification-service";
 
 export const leaveRequestTypes = [
   "sick",
@@ -251,6 +255,24 @@ export async function createLeaveRequest(
     })
     .returning({ id: leaveRequests.id });
 
+  const managerIds = (await getDepartmentManagerIds(
+    user.organizationId,
+    input.departmentId,
+  )).filter((managerId) => managerId !== user.id);
+
+  await createNotifications(
+    managerIds.map((managerId) => ({
+      organizationId: user.organizationId,
+      userId: managerId,
+      type: "leave_submitted",
+      title: "New leave request",
+      message: `${user.name} submitted a ${formatLeaveType(input.type)} request.`,
+      relatedEntityType: "leave_request",
+      relatedEntityId: request.id,
+      actionUrl: `/manager/leave/${request.id}`,
+    })),
+  );
+
   return { ok: true, requestId: request.id };
 }
 
@@ -288,10 +310,30 @@ export async function reviewLeaveRequest(
         accessCondition,
       ),
     )
-    .returning({ id: leaveRequests.id });
+    .returning({
+      id: leaveRequests.id,
+      userId: leaveRequests.userId,
+      type: leaveRequests.type,
+    });
 
   if (!request) {
     return { ok: false, error: "You do not have access to review this request." };
+  }
+
+  if (request.userId !== user.id) {
+    await createNotificationForKnownRecipient({
+      organizationId: user.organizationId,
+      userId: request.userId,
+      type: input.decision === "approved" ? "leave_approved" : "leave_rejected",
+      title:
+        input.decision === "approved"
+          ? "Leave request approved"
+          : "Leave request rejected",
+      message: `Your ${formatLeaveType(request.type)} request was ${input.decision}.`,
+      relatedEntityType: "leave_request",
+      relatedEntityId: request.id,
+      actionUrl: `/leave/${request.id}`,
+    });
   }
 
   return { ok: true };
@@ -315,51 +357,42 @@ async function getLeaveRequestsPage(
   const where = buildLeaveWhere(user, filters, options);
   const offset = (options.page - 1) * pageSize;
 
-  const [rows, totals] = await Promise.all([
-    db
-      .select({
-        id: leaveRequests.id,
-        type: leaveRequests.type,
-        startDate: leaveRequests.startDate,
-        endDate: leaveRequests.endDate,
-        reason: leaveRequests.reason,
-        status: leaveRequests.status,
-        reviewComment: leaveRequests.reviewComment,
-        reviewedAt: leaveRequests.reviewedAt,
-        createdAt: leaveRequests.createdAt,
-        employeeId: users.id,
-        employeeName: users.name,
-        employeeEmail: users.email,
-        departmentId: departments.id,
-        departmentName: departments.name,
-        reviewedByName: reviewedBy.name,
-      })
-      .from(leaveRequests)
-      .innerJoin(users, eq(leaveRequests.userId, users.id))
-      .innerJoin(departments, eq(leaveRequests.departmentId, departments.id))
-      .leftJoin(reviewedBy, eq(leaveRequests.reviewedByUserId, reviewedBy.id))
-      .where(where)
-      .orderBy(...getLeaveOrderBy(options.scope))
-      .limit(pageSize)
-      .offset(offset),
-    db
-      .select({ value: count() })
-      .from(leaveRequests)
-      .innerJoin(users, eq(leaveRequests.userId, users.id))
-      .innerJoin(departments, eq(leaveRequests.departmentId, departments.id))
-      .leftJoin(reviewedBy, eq(leaveRequests.reviewedByUserId, reviewedBy.id))
-      .where(where),
-  ]);
-
-  const total = Number(totals[0]?.value ?? 0);
+  const rows = await db
+    .select({
+      id: leaveRequests.id,
+      type: leaveRequests.type,
+      startDate: leaveRequests.startDate,
+      endDate: leaveRequests.endDate,
+      reason: leaveRequests.reason,
+      status: leaveRequests.status,
+      reviewComment: leaveRequests.reviewComment,
+      reviewedAt: leaveRequests.reviewedAt,
+      createdAt: leaveRequests.createdAt,
+      employeeId: users.id,
+      employeeName: users.name,
+      employeeEmail: users.email,
+      departmentId: departments.id,
+      departmentName: departments.name,
+      reviewedByName: reviewedBy.name,
+    })
+    .from(leaveRequests)
+    .innerJoin(users, eq(leaveRequests.userId, users.id))
+    .innerJoin(departments, eq(leaveRequests.departmentId, departments.id))
+    .leftJoin(reviewedBy, eq(leaveRequests.reviewedByUserId, reviewedBy.id))
+    .where(where)
+    .orderBy(...getLeaveOrderBy(options.scope))
+    .limit(pageSize + 1)
+    .offset(offset);
+  const visibleRows = rows.slice(0, pageSize);
+  const hasNextPage = rows.length > pageSize;
 
   return {
-    rows,
-    total,
+    rows: visibleRows,
+    total: offset + visibleRows.length + (hasNextPage ? 1 : 0),
     page: options.page,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: hasNextPage ? options.page + 1 : options.page,
     hasPreviousPage: options.page > 1,
-    hasNextPage: offset + rows.length < total,
+    hasNextPage,
   };
 }
 
@@ -665,4 +698,17 @@ function existsDepartmentMembershipSql(user: CurrentUser, departmentId: number) 
 
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function formatLeaveType(value: string) {
+  const labels: Record<string, string> = {
+    sick: "sick leave",
+    vacation: "vacation leave",
+    unpaid: "unpaid leave",
+    remote: "remote work day",
+    personal: "personal leave",
+    training: "training leave",
+  };
+
+  return labels[value] ?? value;
 }
