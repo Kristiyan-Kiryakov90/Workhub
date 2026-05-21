@@ -5,6 +5,7 @@ import { createCsrfToken } from "@/modules/auth/services/csrf-service";
 import { getCurrentUser } from "@/modules/auth/services/session-service";
 import type { CurrentUser } from "@/modules/auth/types";
 import { getUnreadNotificationCount } from "@/modules/notifications/services/notification-service";
+import { userCanViewReports } from "@/modules/reports/services/report-service";
 import { MobileNavigation, type HeaderUser } from "./mobile-navigation";
 
 const publicNavigation = [
@@ -28,13 +29,18 @@ export async function PublicHeader() {
         organizationName: currentSession.organizationName ?? "WorkHub",
       } satisfies HeaderUser)
     : null;
-  const [logoutCsrfToken, unreadNotificationCount] = currentSession
+  const [logoutCsrfToken, unreadNotificationCount, canViewReports] = currentSession
     ? await Promise.all([
         createCsrfToken("logout"),
         getCachedUnreadNotificationCount(currentSession),
+        getCachedCanViewReports(currentSession),
       ])
-    : [null, 0];
-  const navigation = currentUser ? appNavigation : publicNavigation;
+    : [null, 0, false];
+  const navigation = currentUser
+    ? canViewReports
+      ? [...appNavigation, { href: "/reports", label: "Analytics" }]
+      : appNavigation
+    : publicNavigation;
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -104,6 +110,17 @@ export async function PublicHeader() {
       </div>
     </header>
   );
+}
+
+async function getCachedCanViewReports(user: CurrentUser) {
+  return unstable_cache(
+    async () => userCanViewReports(user),
+    ["header-reports-access", String(user.organizationId), String(user.id)],
+    {
+      revalidate: 30,
+      tags: [`reports:${user.organizationId}:${user.id}`],
+    },
+  )();
 }
 
 async function getCachedUnreadNotificationCount(user: CurrentUser) {
