@@ -4,7 +4,13 @@ import { NextResponse } from "next/server";
 import { sessionCookieName } from "./modules/auth/constants";
 import { verifySessionToken } from "./modules/auth/services/jwt-service";
 
-const publicRoutes = new Set(["/", "/login", "/register-organization"]);
+const publicRoutes = new Set([
+  "/",
+  "/about",
+  "/api/header-session",
+  "/login",
+  "/register-organization",
+]);
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
