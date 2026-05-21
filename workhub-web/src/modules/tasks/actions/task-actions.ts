@@ -12,6 +12,7 @@ import {
   addTaskChecklistItem,
   createTask,
   deleteTaskChecklistItem,
+  deleteTask,
   taskPriorities,
   taskStatuses,
   toggleTaskChecklistItem,
@@ -277,6 +278,31 @@ export async function deleteChecklistItemAction(formData: FormData) {
   revalidatePath(`/tasks/${taskId}`);
   revalidateTaskCaches(user);
   redirect(`/tasks/${taskId}`);
+}
+
+export async function deleteTaskAction(formData: FormData) {
+  const user = await requireActionUser();
+  const taskId = Number(formData.get("taskId"));
+  const csrfToken = String(formData.get("csrfToken") ?? "");
+
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+    redirect("/tasks");
+  }
+
+  if (!(await verifyCsrfToken(csrfToken, "task.delete"))) {
+    redirect(`/tasks/${taskId}?error=session-expired`);
+  }
+
+  const result = await deleteTask(user, taskId);
+
+  if (!result.ok) {
+    redirect(`/tasks/${taskId}?error=forbidden`);
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath("/dashboard");
+  revalidateTaskCaches(user);
+  redirect("/tasks");
 }
 
 export async function toggleChecklistItemInlineAction(input: {

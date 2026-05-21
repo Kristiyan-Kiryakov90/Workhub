@@ -1,0 +1,2 @@
+CREATE INDEX "leave_requests_organization_status_dates_idx" ON "leave_requests" USING btree ("organization_id","status","start_date","end_date");--> statement-breakpoint
+CREATE INDEX "leave_requests_organization_user_status_dates_idx" ON "leave_requests" USING btree ("organization_id","user_id","status","start_date","end_date");

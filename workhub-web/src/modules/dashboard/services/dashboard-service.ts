@@ -334,12 +334,12 @@ async function getOrganizationSummary(user: CurrentUser) {
           and ${users.isActive} = true
       )`,
       totalDepartmentManagers: sql<number>`(
-        select count(distinct ${userRoles.userId})
-        from ${userRoles}
-        inner join ${roles} on ${userRoles.roleId} = ${roles.id}
-        where ${userRoles.organizationId} = ${user.organizationId}
-          and ${roles.organizationId} = ${user.organizationId}
-          and ${roles.name} = 'Department Manager'
+        select count(distinct "user_roles"."user_id")
+        from "user_roles"
+        inner join "roles" on "user_roles"."role_id" = "roles"."id"
+        where "user_roles"."organization_id" = ${user.organizationId}
+          and "roles"."organization_id" = ${user.organizationId}
+          and "roles"."name" = 'Department Manager'
       )`,
       totalPendingLeaveRequests: sql<number>`(
         select count(*)

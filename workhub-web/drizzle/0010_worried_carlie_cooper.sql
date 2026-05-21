@@ -1,0 +1,2 @@
+CREATE INDEX "shifts_organization_start_end_idx" ON "shifts" USING btree ("organization_id","start_time","end_time");--> statement-breakpoint
+CREATE INDEX "shifts_organization_department_start_idx" ON "shifts" USING btree ("organization_id","department_id","start_time");

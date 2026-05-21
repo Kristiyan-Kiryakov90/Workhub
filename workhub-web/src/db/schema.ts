@@ -318,6 +318,19 @@ export const leaveRequests = pgTable(
       table.status,
     ),
     index("leave_requests_user_idx").on(table.userId),
+    index("leave_requests_organization_status_dates_idx").on(
+      table.organizationId,
+      table.status,
+      table.startDate,
+      table.endDate,
+    ),
+    index("leave_requests_organization_user_status_dates_idx").on(
+      table.organizationId,
+      table.userId,
+      table.status,
+      table.startDate,
+      table.endDate,
+    ),
     index("leave_requests_start_date_idx").on(table.startDate),
   ],
 );
@@ -336,6 +349,7 @@ export const shifts = pgTable(
     startTime: timestamp("start_time", { withTimezone: true }).notNull(),
     endTime: timestamp("end_time", { withTimezone: true }).notNull(),
     location: varchar("location", { length: 255 }),
+    color: varchar("color", { length: 40 }).default("cyan").notNull(),
     notes: text("notes"),
     status: shiftStatus("status").default("draft").notNull(),
     createdByUserId: integer("created_by_user_id")
@@ -346,6 +360,26 @@ export const shifts = pgTable(
   },
   (table) => [
     index("shifts_organization_idx").on(table.organizationId),
+    index("shifts_organization_start_end_idx").on(
+      table.organizationId,
+      table.startTime,
+      table.endTime,
+    ),
+    index("shifts_organization_department_start_idx").on(
+      table.organizationId,
+      table.departmentId,
+      table.startTime,
+    ),
+    index("shifts_organization_status_start_time_idx").on(
+      table.organizationId,
+      table.status,
+      table.startTime,
+    ),
+    index("shifts_organization_status_end_time_idx").on(
+      table.organizationId,
+      table.status,
+      table.endTime,
+    ),
     index("shifts_department_start_time_idx").on(
       table.departmentId,
       table.startTime,
@@ -379,6 +413,15 @@ export const shiftAssignments = pgTable(
     ),
     index("shift_assignments_organization_idx").on(table.organizationId),
     index("shift_assignments_user_idx").on(table.userId),
+    index("shift_assignments_organization_user_shift_idx").on(
+      table.organizationId,
+      table.userId,
+      table.shiftId,
+    ),
+    index("shift_assignments_organization_shift_idx").on(
+      table.organizationId,
+      table.shiftId,
+    ),
   ],
 );
 

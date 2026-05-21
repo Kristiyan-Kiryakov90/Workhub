@@ -8,14 +8,24 @@ import {
 } from "@/modules/auth/services/authorization-service";
 import type { CurrentUser } from "@/modules/auth/types";
 import { getDashboardData } from "@/modules/dashboard/services/dashboard-service";
+import { getShiftCalendarData } from "@/modules/shifts/services/shift-list-service";
+import { ShiftCalendar } from "@/app/shifts/shift-calendar";
 
 export const metadata = {
   title: "Dashboard | WorkHub",
 };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireDashboardUser();
+  const params = await searchParams;
   const dashboard = await getCachedDashboardData(user);
+  const shiftCalendar = dashboard.isDepartmentManager
+    ? await getCachedDashboardShiftCalendar(user, cleanMonth(firstParam(params.month)))
+    : null;
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -133,7 +143,18 @@ export default async function DashboardPage() {
         </div>
 
         {dashboard.isDepartmentManager ? (
-          <div className="grid gap-6 xl:grid-cols-3">
+          <>
+            {shiftCalendar ? (
+              <DashboardSection title="Department Schedule Calendar">
+                <ShiftCalendar
+                  data={shiftCalendar}
+                  baseHref="/dashboard"
+                  shiftHrefPrefix="/manager/shifts"
+                />
+              </DashboardSection>
+            ) : null}
+
+            <div className="grid gap-6 xl:grid-cols-3">
             <DashboardSection title="Pending Leave Approvals">
               <CardList emptyText="There are no leave requests waiting for approval.">
                 {dashboard.pendingLeaveApprovals.map((request) => (
@@ -173,7 +194,7 @@ export default async function DashboardPage() {
                 {dashboard.departmentTasks.map((task) => (
                   <TaskCard
                     key={task.id}
-                    href={`/manager/tasks/${task.id}`}
+                    href={`/tasks/${task.id}`}
                     title={task.title}
                     department={task.department}
                     assignedEmployee={task.assignedEmployee}
@@ -185,7 +206,8 @@ export default async function DashboardPage() {
                 ))}
               </CardList>
             </DashboardSection>
-          </div>
+            </div>
+          </>
         ) : null}
 
         {dashboard.isMainAdmin ? (
@@ -240,6 +262,31 @@ async function getCachedDashboardData(user: CurrentUser) {
       tags: [
         `dashboard:${user.organizationId}`,
         `dashboard:${user.organizationId}:${user.id}`,
+      ],
+    },
+  )();
+}
+
+async function getCachedDashboardShiftCalendar(
+  user: CurrentUser,
+  month?: string,
+) {
+  return unstable_cache(
+    async () => getShiftCalendarData(user, { month }),
+    [
+      "dashboard-shift-calendar",
+      String(user.organizationId),
+      String(user.id),
+      month ?? "current",
+    ],
+    {
+      revalidate: 30,
+      tags: [
+        `dashboard:${user.organizationId}`,
+        `dashboard:${user.organizationId}:${user.id}`,
+        `shifts:${user.organizationId}`,
+        `shifts:${user.organizationId}:${user.id}`,
+        `leave:${user.organizationId}`,
       ],
     },
   )();
@@ -549,15 +596,17 @@ function formatDateTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(toDate(value));
 }
 
 function formatTime(value: Date | string) {
   return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(toDate(value));
 }
 
@@ -570,6 +619,14 @@ function isPastDate(value: string) {
   today.setHours(0, 0, 0, 0);
 
   return new Date(`${value}T00:00:00`) < today;
+}
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function cleanMonth(value: string | undefined) {
+  return value && /^\d{4}-\d{2}$/.test(value) ? value : undefined;
 }
 
 async function requireDashboardUser() {

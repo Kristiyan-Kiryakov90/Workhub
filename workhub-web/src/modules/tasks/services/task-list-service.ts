@@ -182,6 +182,9 @@ export async function getTaskDetails(user: CurrentUser, taskId: number) {
   const canManageTask =
     context.permissions.has("tasks.update") &&
     (isMainAdmin || managedDepartmentIds.includes(task.departmentId));
+  const canDeleteTask =
+    context.permissions.has("tasks.delete") &&
+    (isMainAdmin || managedDepartmentIds.includes(task.departmentId));
 
   const [departmentOptions, assigneeOptions] = canManageTask
     ? await Promise.all([
@@ -194,6 +197,7 @@ export async function getTaskDetails(user: CurrentUser, taskId: number) {
     ...task,
     checklistItems,
     canManageTask,
+    canDeleteTask,
     departmentOptions,
     assigneeOptions,
   };
@@ -380,6 +384,21 @@ export async function deleteTaskChecklistItem(
   return { ok: true };
 }
 
+export async function deleteTask(user: CurrentUser, taskId: number) {
+  const [deletedTask] = await db
+    .delete(tasks)
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.organizationId, user.organizationId),
+        canDeleteTaskSql(user),
+      ),
+    )
+    .returning({ id: tasks.id });
+
+  return { ok: Boolean(deletedTask) };
+}
+
 export async function getCreateTaskFormData(user: CurrentUser) {
   const context = await getTaskActorContext(user);
 
@@ -531,6 +550,31 @@ function canManageTaskSql(user: CurrentUser) {
       and ${userRoles.organizationId} = ${user.organizationId}
       and ${roles.organizationId} = ${user.organizationId}
       and ${permissions.key} = 'tasks.update'
+      and (
+        ${roles.name} = 'Main Admin'
+        or exists (
+          select 1
+          from ${departmentMembers}
+          where ${departmentMembers.userId} = ${user.id}
+            and ${departmentMembers.organizationId} = ${user.organizationId}
+            and ${departmentMembers.departmentId} = ${tasks.departmentId}
+            and ${departmentMembers.isManager} = true
+        )
+      )
+  )`;
+}
+
+function canDeleteTaskSql(user: CurrentUser) {
+  return sql`exists (
+    select 1
+    from ${userRoles}
+    inner join ${roles} on ${userRoles.roleId} = ${roles.id}
+    left join ${rolePermissions} on ${roles.id} = ${rolePermissions.roleId}
+    left join ${permissions} on ${rolePermissions.permissionId} = ${permissions.id}
+    where ${userRoles.userId} = ${user.id}
+      and ${userRoles.organizationId} = ${user.organizationId}
+      and ${roles.organizationId} = ${user.organizationId}
+      and ${permissions.key} = 'tasks.delete'
       and (
         ${roles.name} = 'Main Admin'
         or exists (

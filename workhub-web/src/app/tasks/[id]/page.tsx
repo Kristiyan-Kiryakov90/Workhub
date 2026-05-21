@@ -7,6 +7,7 @@ import {
 } from "@/modules/auth/services/authorization-service";
 import { createCsrfToken } from "@/modules/auth/services/csrf-service";
 import {
+  deleteTaskAction,
   updateTaskDetailsAction,
 } from "@/modules/tasks/actions/task-actions";
 import {
@@ -44,6 +45,9 @@ export default async function TaskDetailsPage({
   }
 
   const updateCsrfToken = await createCsrfToken("task.update");
+  const deleteCsrfToken = task.canDeleteTask
+    ? await createCsrfToken("task.delete")
+    : null;
   const addChecklistCsrfToken = task.canManageTask
     ? await createCsrfToken("task.checklist.add")
     : null;
@@ -275,6 +279,22 @@ export default async function TaskDetailsPage({
             </Link>
           </div>
         </form>
+
+        {task.canDeleteTask && deleteCsrfToken ? (
+          <form
+            action={deleteTaskAction}
+            className="mt-6 border-t border-red-100 pt-6"
+          >
+            <input type="hidden" name="taskId" value={task.id} />
+            <input type="hidden" name="csrfToken" value={deleteCsrfToken} />
+            <button
+              type="submit"
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+            >
+              Delete Task
+            </button>
+          </form>
+        ) : null}
       </div>
     </section>
   );

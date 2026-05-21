@@ -1,0 +1,1 @@
+ALTER TABLE "shifts" ADD COLUMN "color" varchar(40) DEFAULT 'cyan' NOT NULL;
