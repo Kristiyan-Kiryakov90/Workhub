@@ -7,6 +7,8 @@ import { verifySessionToken } from "./modules/auth/services/jwt-service";
 const publicRoutes = new Set([
   "/",
   "/about",
+  "/api/auth/login",
+  "/api/docs",
   "/api/header-session",
   "/login",
   "/register-organization",
@@ -17,6 +19,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     publicRoutes.has(pathname) ||
+    pathname.startsWith("/api/") ||
     pathname.startsWith("/invite/") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico")

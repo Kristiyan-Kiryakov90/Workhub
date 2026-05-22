@@ -637,88 +637,60 @@ Authorization helpers include:
 
 ## Database Schema Relationships
 
-Organization ownership:
-- `organizations` is the root tenant table.
-- `users.organization_id` references `organizations.id`.
-- `sessions.organization_id` references `organizations.id`.
-- `audit_logs.organization_id` references `organizations.id`.
-- `roles.organization_id` references `organizations.id`.
-- `departments.organization_id` references `organizations.id`.
-- `user_roles.organization_id` references `organizations.id`.
-- `department_members.organization_id` references `organizations.id`.
-- `invitations.organization_id` references `organizations.id`.
-- `leave_requests.organization_id` references `organizations.id`.
-- `shifts.organization_id` references `organizations.id`.
-- `shift_assignments.organization_id` references `organizations.id`.
-- `tasks.organization_id` references `organizations.id`.
-- `task_checklist_items.organization_id` references `organizations.id`.
-- `notifications.organization_id` references `organizations.id`.
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ USERS : contains
+    ORGANIZATIONS ||--o{ SESSIONS : scopes
+    ORGANIZATIONS ||--o{ AUDIT_LOGS : tracks
+    ORGANIZATIONS ||--o{ ROLES : defines
+    ORGANIZATIONS ||--o{ DEPARTMENTS : contains
+    ORGANIZATIONS ||--o{ USER_ROLES : scopes
+    ORGANIZATIONS ||--o{ DEPARTMENT_MEMBERS : scopes
+    ORGANIZATIONS ||--o{ INVITATIONS : sends
+    ORGANIZATIONS ||--o{ LEAVE_REQUESTS : contains
+    ORGANIZATIONS ||--o{ SHIFTS : contains
+    ORGANIZATIONS ||--o{ SHIFT_ASSIGNMENTS : scopes
+    ORGANIZATIONS ||--o{ TASKS : contains
+    ORGANIZATIONS ||--o{ TASK_CHECKLIST_ITEMS : scopes
+    ORGANIZATIONS ||--o{ NOTIFICATIONS : scopes
 
-Authentication and audit:
-- `sessions.user_id` references `users.id`.
-- `audit_logs.user_id` references `users.id`.
-- `csrf_tokens` stores single-use CSRF nonces by action and does not reference another table.
+    USERS ||--o{ SESSIONS : owns
+    USERS ||--o{ AUDIT_LOGS : initiates
+    USERS ||--o{ USER_ROLES : has
+    USERS ||--o{ DEPARTMENT_MEMBERS : belongs_to
+    USERS ||--o{ INVITATIONS : creates
+    USERS ||--o{ INVITATIONS : accepts
+    USERS ||--o{ LEAVE_REQUESTS : requests
+    USERS ||--o{ LEAVE_REQUESTS : reviews
+    USERS ||--o{ SHIFTS : creates
+    USERS ||--o{ SHIFT_ASSIGNMENTS : assigned_to
+    USERS ||--o{ SHIFT_ASSIGNMENTS : assigns
+    USERS ||--o{ TASKS : creates
+    USERS ||--o{ TASKS : assigned_to
+    USERS ||--o{ NOTIFICATIONS : receives
 
-Roles and permissions:
-- `roles.organization_id` references `organizations.id`.
-- `permissions` stores global permission keys.
-- `role_permissions.role_id` references `roles.id`.
-- `role_permissions.permission_id` references `permissions.id`.
-- `user_roles.organization_id` references `organizations.id`.
-- `user_roles.user_id` references `users.id`.
-- `user_roles.role_id` references `roles.id`.
+    ROLES ||--o{ USER_ROLES : assigned_to
+    ROLES ||--o{ ROLE_PERMISSIONS : has
+    ROLES ||--o{ INVITATIONS : assigned_on
 
-Departments and membership:
-- `departments.organization_id` references `organizations.id`.
-- `department_members.organization_id` references `organizations.id`.
-- `department_members.department_id` references `departments.id`.
-- `department_members.user_id` references `users.id`.
-- `department_members.is_manager` marks department manager access.
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : granted_by
 
-Invitations:
-- `invitations.organization_id` references `organizations.id`.
-- `invitations.role_id` references `roles.id`.
-- `invitations.created_by_user_id` references `users.id`.
-- `invitations.accepted_by_user_id` references `users.id`.
-- `invitations.department_assignments` stores the invited user's department assignment payload.
+    DEPARTMENTS ||--o{ DEPARTMENT_MEMBERS : has
+    DEPARTMENTS ||--o{ LEAVE_REQUESTS : receives
+    DEPARTMENTS ||--o{ SHIFTS : schedules
+    DEPARTMENTS ||--o{ TASKS : owns
 
-Leave requests:
-- `leave_requests.organization_id` references `organizations.id`.
-- `leave_requests.department_id` references `departments.id`.
-- `leave_requests.user_id` references `users.id`.
-- `leave_requests.reviewed_by_user_id` references `users.id`.
+    SHIFTS ||--o{ SHIFT_ASSIGNMENTS : has
 
-Shifts:
-- `shifts.organization_id` references `organizations.id`.
-- `shifts.department_id` references `departments.id`.
-- `shifts.created_by_user_id` references `users.id`.
-- `shift_assignments.organization_id` references `organizations.id`.
-- `shift_assignments.shift_id` references `shifts.id`.
-- `shift_assignments.user_id` references `users.id`.
-- `shift_assignments.assigned_by_user_id` references `users.id`.
+    TASKS ||--o{ TASK_CHECKLIST_ITEMS : contains
 
-Tasks:
-- `tasks.organization_id` references `organizations.id`.
-- `tasks.department_id` references `departments.id`.
-- `tasks.created_by_user_id` references `users.id`.
-- `tasks.assigned_to_user_id` references `users.id`.
-- `task_checklist_items.organization_id` references `organizations.id`.
-- `task_checklist_items.task_id` references `tasks.id`.
-
-Notifications:
-- `notifications.organization_id` references `organizations.id`.
-- `notifications.user_id` references `users.id`.
-- `notifications.related_entity_type` and `notifications.related_entity_id` point to workflow records such as tasks, leave requests, and shifts.
-
-Relationship summary:
-- One organization has many users, roles, departments, sessions, invitations, leave requests, shifts, tasks, and notifications.
-- One user can have many roles through `user_roles`.
-- One role can have many permissions through `role_permissions`.
-- One user can belong to many departments through `department_members`.
-- One department has many members, leave requests, shifts, and tasks.
-- One shift can have many assigned users through `shift_assignments`.
-- One task can have many checklist items.
-- One user can receive many notifications.
+    CSRF_TOKENS {
+        string nonce PK
+        string action
+        timestamp expires_at
+        timestamp used_at
+    }
+```
 
 The schema is fully normalized and optimized for scalability.
 

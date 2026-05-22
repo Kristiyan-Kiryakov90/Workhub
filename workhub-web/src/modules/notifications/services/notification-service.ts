@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, count, desc, eq, gt, inArray, isNull } from "drizzle-orm";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 
 import { db } from "@/db";
 import { departmentMembers, notifications, users } from "@/db/schema";
@@ -441,7 +441,7 @@ function dedupeNotificationInputs(inputs: CreateNotificationInput[]) {
 }
 
 function revalidateNotificationRecipient(organizationId: number, userId: number) {
-  updateTag(`notifications:${organizationId}:${userId}`);
+  revalidateTag(`notifications:${organizationId}:${userId}`, { expire: 0 });
 }
 
 function revalidateNotificationRecipients(
