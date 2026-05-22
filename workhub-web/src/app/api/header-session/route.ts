@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/modules/auth/services/session-service";
 import type { CurrentUser } from "@/modules/auth/types";
 import { getUnreadNotificationCount } from "@/modules/notifications/services/notification-service";
 import { userCanViewReports } from "@/modules/reports/services/report-service";
+import { userHasRole } from "@/modules/auth/services/authorization-service";
 
 export async function GET() {
   const currentSession = await getCurrentUser();
@@ -16,14 +17,16 @@ export async function GET() {
       logoutCsrfToken: null,
       unreadNotificationCount: 0,
       canViewReports: false,
+      isMainAdmin: false,
     });
   }
 
-  const [logoutCsrfToken, unreadNotificationCount, canViewReports] =
+  const [logoutCsrfToken, unreadNotificationCount, canViewReports, isMainAdmin] =
     await Promise.all([
       createCsrfToken("logout"),
       getCachedUnreadNotificationCount(currentSession),
       getCachedCanViewReports(currentSession),
+      userHasRole(currentSession, "Main Admin"),
     ]);
 
   return NextResponse.json({
@@ -34,6 +37,7 @@ export async function GET() {
     logoutCsrfToken,
     unreadNotificationCount,
     canViewReports,
+    isMainAdmin,
   });
 }
 

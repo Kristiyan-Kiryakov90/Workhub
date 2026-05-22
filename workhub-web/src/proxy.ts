@@ -17,6 +17,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     publicRoutes.has(pathname) ||
+    pathname.startsWith("/invite/") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico")
   ) {

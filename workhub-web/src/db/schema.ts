@@ -51,6 +51,12 @@ export const taskStatus = pgEnum("task_status", [
   "cancelled",
 ]);
 
+export const invitationStatus = pgEnum("invitation_status", [
+  "pending",
+  "accepted",
+  "cancelled",
+]);
+
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 
@@ -282,6 +288,43 @@ export const departmentMembers = pgTable(
     index("department_members_organization_idx").on(table.organizationId),
     index("department_members_user_idx").on(table.userId),
     index("department_members_manager_idx").on(table.isManager),
+  ],
+);
+
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: serial("id").primaryKey(),
+    organizationId: integer("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    roleId: integer("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "restrict" }),
+    departmentAssignments: text("department_assignments").notNull(),
+    status: invitationStatus("status").default("pending").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedByUserId: integer("accepted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdByUserId: integer("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex("invitations_token_hash_unique").on(table.tokenHash),
+    index("invitations_organization_status_idx").on(
+      table.organizationId,
+      table.status,
+    ),
+    index("invitations_email_idx").on(table.email),
+    index("invitations_expires_at_idx").on(table.expiresAt),
   ],
 );
 

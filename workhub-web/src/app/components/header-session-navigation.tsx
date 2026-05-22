@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { logoutAction } from "@/modules/auth/actions/auth-actions";
@@ -9,7 +10,7 @@ import { MobileNavigation, type HeaderUser } from "./mobile-navigation";
 const publicNavigation = [
   { href: "/", label: "Home" },
   { href: "/login", label: "Login" },
-  { href: "/register-organization", label: "Register Organization" },
+  { href: "/register-organization", label: "Register" },
   { href: "/about", label: "About" },
 ];
 
@@ -25,6 +26,7 @@ type HeaderSession = {
   logoutCsrfToken: string | null;
   unreadNotificationCount: number;
   canViewReports: boolean;
+  isMainAdmin: boolean;
 };
 
 const emptyHeaderSession: HeaderSession = {
@@ -32,10 +34,16 @@ const emptyHeaderSession: HeaderSession = {
   logoutCsrfToken: null,
   unreadNotificationCount: 0,
   canViewReports: false,
+  isMainAdmin: false,
 };
 
-export function HeaderSessionNavigation() {
-  const [session, setSession] = useState<HeaderSession>(emptyHeaderSession);
+export function HeaderSessionNavigation({
+  initialSession = emptyHeaderSession,
+}: {
+  initialSession?: HeaderSession;
+}) {
+  const [session, setSession] = useState<HeaderSession>(initialSession);
+  const pathname = usePathname();
 
   useEffect(() => {
     let isActive = true;
@@ -63,12 +71,25 @@ export function HeaderSessionNavigation() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [pathname]);
 
   const navigation = session.currentUser
     ? session.canViewReports
-      ? [...appNavigation, { href: "/reports", label: "Analytics" }]
-      : appNavigation
+      ? [
+          ...appNavigation,
+          { href: "/reports", label: "Analytics" },
+          { href: "/profile", label: "Profile" },
+          ...(session.isMainAdmin
+            ? [{ href: "/admin/users", label: "Admin" }]
+            : []),
+        ]
+      : [
+          ...appNavigation,
+          { href: "/profile", label: "Profile" },
+          ...(session.isMainAdmin
+            ? [{ href: "/admin/users", label: "Admin" }]
+            : []),
+        ]
     : publicNavigation;
 
   return (

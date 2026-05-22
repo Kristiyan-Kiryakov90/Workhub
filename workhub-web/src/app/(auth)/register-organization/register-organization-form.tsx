@@ -7,6 +7,7 @@ import {
   registerOrganizationAction,
   type RegisterOrganizationActionState,
 } from "@/modules/organizations/actions/register-organization-actions";
+import { InviteLookupForm } from "@/app/invite/invite-lookup-form";
 
 type RegisterFields = {
   organizationName: string;
@@ -182,6 +183,17 @@ export function RegisterOrganizationForm({ csrfToken }: { csrfToken: string }) {
             Login
           </Link>
         </p>
+
+        <div className="mt-8 border-t border-slate-200 pt-6">
+          <h2 className="text-lg font-semibold text-slate-950">
+            Joining by invitation?
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Paste the invitation link from your administrator to create your
+            account inside an existing organization.
+          </p>
+          <InviteLookupForm />
+        </div>
       </div>
     </section>
   );
