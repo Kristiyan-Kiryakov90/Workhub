@@ -16,6 +16,14 @@ export function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init);
 }
 
+export function corsJson(data: unknown, request: Request, init?: ResponseInit) {
+  return withCorsHeaders(json(data, init), request);
+}
+
+export function corsNoContent(request: Request) {
+  return withCorsHeaders(new NextResponse(null, { status: 204 }), request);
+}
+
 export function parsePaging(searchParams: URLSearchParams): Paging {
   const page = clampInteger(searchParams.get("page"), 1, 1, 10_000);
   const pageSize = clampInteger(searchParams.get("pageSize"), 20, 1, 100);
@@ -43,9 +51,12 @@ export async function withAuth(
   options?: { includeRoles?: boolean },
 ) {
   try {
-    return await handler(await requireBearerAuth(request, options));
+    return withCorsHeaders(
+      await handler(await requireBearerAuth(request, options)),
+      request,
+    );
   } catch (error) {
-    return handleApiError(error);
+    return withCorsHeaders(handleApiError(error), request);
   }
 }
 
@@ -56,6 +67,31 @@ export function handleApiError(error: unknown) {
 
   console.error(error);
   return json({ error: "Something went wrong." }, { status: 500 });
+}
+
+export function withCorsHeaders(response: Response, request: Request) {
+  const origin = request.headers.get("origin");
+  const allowedOrigin = getAllowedApiOrigin(origin);
+  const headers = new Headers(response.headers);
+
+  if (allowedOrigin) {
+    headers.set("Access-Control-Allow-Origin", allowedOrigin);
+    headers.append("Vary", "Origin");
+  }
+
+  headers.set("Access-Control-Allow-Credentials", "false");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Authorization, Content-Type, Accept",
+  );
+  headers.set("Access-Control-Max-Age", "86400");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 export function notFound(message = "Resource not found.") {
@@ -103,4 +139,14 @@ function clampInteger(
   }
 
   return Math.min(max, Math.max(min, parsed));
+}
+
+function getAllowedApiOrigin(origin: string | null) {
+  const configuredOrigin = process.env.MOBILE_APP_ORIGIN?.trim();
+
+  if (configuredOrigin) {
+    return origin === configuredOrigin ? origin : null;
+  }
+
+  return origin ?? "*";
 }
