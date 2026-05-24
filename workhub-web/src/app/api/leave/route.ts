@@ -8,7 +8,11 @@ export async function GET(request: Request) {
   return withAuth(request, async ({ user }) => {
     const { searchParams } = new URL(request.url);
 
-    return json(await listMobileLeave(user, parsePaging(searchParams)));
+    return json(
+      await listMobileLeave(user, parsePaging(searchParams), {
+        includeTotal: searchParams.get("count") !== "0",
+      }),
+    );
   });
 }
 

@@ -39,6 +39,7 @@ const endpointGroups = [
     title: "Notifications",
     endpoints: [
       ["GET", "/api/notifications?page=1&pageSize=20", "List current user's notifications."],
+      ["GET", "/api/notifications/unread-count", "Get current user's unread notification count."],
       ["POST", "/api/notifications/{id}/read", "Mark one notification as read."],
       ["POST", "/api/notifications/read-all", "Mark all current user's notifications as read."],
     ],

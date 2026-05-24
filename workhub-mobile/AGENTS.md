@@ -36,6 +36,8 @@ Employees can:
 
 Use the WorkHub RESTful API backend.
 Backend API source code: `..\workhub-web\src\app\api`
+Backend API documentation: http://localhost:3000/api/docs
+
 
 Authentication:
 - JWT + Bearer token authentication

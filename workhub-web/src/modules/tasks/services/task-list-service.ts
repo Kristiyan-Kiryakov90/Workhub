@@ -29,6 +29,7 @@ import type { CurrentUser } from "@/modules/auth/types";
 import {
   createOrMergeNotificationForKnownRecipient,
   createNotificationForKnownRecipient,
+  getDepartmentManagerIds,
 } from "@/modules/notifications/services/notification-service";
 
 export const taskStatuses = [
@@ -100,7 +101,9 @@ export async function getTaskListData(
 
   const [departmentOptions, assigneeOptions, activeTasks, archivedTasks] =
     await Promise.all([
-      getDepartmentOptions(user, isMainAdmin, managedDepartmentIds),
+      isMainAdmin || managedDepartmentIds.length === 0
+        ? getDepartmentOptions(user, isMainAdmin, managedDepartmentIds)
+        : Promise.resolve(context.managedDepartments),
       canFilterByAssignee
         ? getAssigneeOptions(user, isMainAdmin, managedDepartmentIds)
         : Promise.resolve([]),
@@ -300,6 +303,16 @@ export async function updateTaskDetails(
         relatedEntityId: input.taskId,
         actionUrl: `/tasks/${input.taskId}`,
       });
+
+      if (changeSummary) {
+        await notifyDepartmentManagersOfTaskUpdate(user, {
+          taskId: input.taskId,
+          departmentId: input.departmentId,
+          title: input.title,
+          message: `"${input.title}" was updated. ${changeSummary}`,
+          excludeUserIds: [input.assignedToUserId],
+        });
+      }
     } else if (
       existingTask?.assignedToUserId &&
       existingTask.assignedToUserId !== user.id
@@ -316,6 +329,14 @@ export async function updateTaskDetails(
       });
 
       if (changeSummary) {
+        await notifyDepartmentManagersOfTaskUpdate(user, {
+          taskId: input.taskId,
+          departmentId: input.departmentId,
+          title: input.title,
+          message: `"${input.title}" was updated. ${changeSummary}`,
+          excludeUserIds: [input.assignedToUserId],
+        });
+
         await createOrMergeNotificationForKnownRecipient({
           organizationId: user.organizationId,
           userId: existingTask.assignedToUserId,
@@ -325,6 +346,27 @@ export async function updateTaskDetails(
           relatedEntityType: "task",
           relatedEntityId: input.taskId,
           actionUrl: `/tasks/${input.taskId}`,
+        });
+      }
+    } else if (existingTask) {
+      const changeSummary = buildTaskChangeSummary(existingTask, {
+        title: input.title,
+        description: input.description ?? null,
+        notes: input.notes,
+        status: input.status,
+        priority: input.priority,
+        departmentId: input.departmentId,
+        assignedToUserId: input.assignedToUserId ?? null,
+        dueDate: input.dueDate ?? null,
+      });
+
+      if (changeSummary) {
+        await notifyDepartmentManagersOfTaskUpdate(user, {
+          taskId: input.taskId,
+          departmentId: input.departmentId,
+          title: input.title,
+          message: `"${input.title}" was updated. ${changeSummary}`,
+          excludeUserIds: [input.assignedToUserId],
         });
       }
     }
@@ -342,6 +384,7 @@ export async function updateTaskDetails(
       title: tasks.title,
       status: tasks.status,
       notes: tasks.notes,
+      departmentId: tasks.departmentId,
       createdByUserId: tasks.createdByUserId,
       assignedToUserId: tasks.assignedToUserId,
     })
@@ -366,6 +409,7 @@ export async function updateTaskDetails(
     .returning({
       id: tasks.id,
       title: tasks.title,
+      departmentId: tasks.departmentId,
       status: tasks.status,
       createdByUserId: tasks.createdByUserId,
       assignedToUserId: tasks.assignedToUserId,
@@ -384,6 +428,14 @@ export async function updateTaskDetails(
       : "";
 
     if (changeSummary) {
+      await notifyDepartmentManagersOfTaskUpdate(user, {
+        taskId: updatedTask.id,
+        departmentId: updatedTask.departmentId,
+        title: updatedTask.title,
+        message: `"${updatedTask.title}" was updated. ${changeSummary}`,
+        excludeUserIds: [updatedTask.assignedToUserId],
+      });
+
       await createOrMergeNotificationForKnownRecipient({
         organizationId: user.organizationId,
         userId: updatedTask.assignedToUserId,
@@ -404,6 +456,17 @@ export async function updateTaskDetails(
       : "";
 
     if (changeSummary) {
+      await notifyDepartmentManagersOfTaskUpdate(user, {
+        taskId: updatedTask.id,
+        departmentId: updatedTask.departmentId,
+        title: updatedTask.title,
+        message:
+          updatedTask.status === "completed"
+            ? `${user.name} completed "${updatedTask.title}". ${changeSummary}`
+            : `${user.name} updated "${updatedTask.title}". ${changeSummary}`,
+        excludeUserIds: [updatedTask.createdByUserId],
+      });
+
       await createOrMergeNotificationForKnownRecipient({
         organizationId: user.organizationId,
         userId: updatedTask.createdByUserId,
@@ -419,6 +482,20 @@ export async function updateTaskDetails(
         relatedEntityType: "task",
         relatedEntityId: updatedTask.id,
         actionUrl: `/tasks/${updatedTask.id}`,
+      });
+    }
+  } else if (existingTask) {
+    const changeSummary = buildTaskChangeSummary(existingTask, {
+      status: input.status,
+      notes: input.notes,
+    });
+
+    if (changeSummary) {
+      await notifyDepartmentManagersOfTaskUpdate(user, {
+        taskId: updatedTask.id,
+        departmentId: updatedTask.departmentId,
+        title: updatedTask.title,
+        message: `"${updatedTask.title}" was updated. ${changeSummary}`,
       });
     }
   }
@@ -844,69 +921,78 @@ async function getTasksPage(
 ) {
   const where = buildTaskWhere(user, filters, options);
   const offset = (options.page - 1) * pageSize;
-  const checklistCounts = db
+  const rows = await db
     .select({
-      taskId: taskChecklistItems.taskId,
-      total: count(taskChecklistItems.id).as("total"),
-      completed:
-        sql<number>`sum(case when ${taskChecklistItems.isCompleted} then 1 else 0 end)`.as(
-          "completed",
-        ),
+      id: tasks.id,
+      title: tasks.title,
+      description: tasks.description,
+      notes: tasks.notes,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      departmentId: departments.id,
+      departmentName: departments.name,
+      assignedToUserId: users.id,
+      assignedEmployeeName: users.name,
     })
-    .from(taskChecklistItems)
-    .where(eq(taskChecklistItems.organizationId, user.organizationId))
-    .groupBy(taskChecklistItems.taskId)
-    .as("checklist_counts");
-
-  const [rows, totals] = await Promise.all([
-    db
-      .select({
-        id: tasks.id,
-        title: tasks.title,
-        description: tasks.description,
-        notes: tasks.notes,
-        status: tasks.status,
-        priority: tasks.priority,
-        dueDate: tasks.dueDate,
-        createdAt: tasks.createdAt,
-        updatedAt: tasks.updatedAt,
-        departmentId: departments.id,
-        departmentName: departments.name,
-        assignedToUserId: users.id,
-        assignedEmployeeName: users.name,
-        checklistTotal: checklistCounts.total,
-        checklistCompleted: checklistCounts.completed,
-      })
-      .from(tasks)
-      .innerJoin(departments, eq(tasks.departmentId, departments.id))
-      .leftJoin(users, eq(tasks.assignedToUserId, users.id))
-      .leftJoin(checklistCounts, eq(checklistCounts.taskId, tasks.id))
-      .where(where)
-      .orderBy(...getTaskOrderBy(options.section))
-      .limit(pageSize)
-      .offset(offset),
-    db.select({ value: count() }).from(tasks).innerJoin(
-      departments,
-      eq(tasks.departmentId, departments.id),
-    ).leftJoin(users, eq(tasks.assignedToUserId, users.id)).where(where),
-  ]);
-
-  const total = Number(totals[0]?.value ?? 0);
+    .from(tasks)
+    .innerJoin(departments, eq(tasks.departmentId, departments.id))
+    .leftJoin(users, eq(tasks.assignedToUserId, users.id))
+    .where(where)
+    .orderBy(...getTaskOrderBy(options.section))
+    .limit(pageSize + 1)
+    .offset(offset);
+  const visibleRows = rows.slice(0, pageSize);
+  const checklistCountsByTaskId = await getChecklistCountsByTaskId(
+    user,
+    visibleRows.map((row) => row.id),
+  );
+  const hasNextPage = rows.length > pageSize;
 
   return {
-    rows: rows.map((row) => ({
+    rows: visibleRows.map((row) => ({
       ...row,
-      checklist: {
-        total: Number(row.checklistTotal ?? 0),
-        completed: Number(row.checklistCompleted ?? 0),
-      },
+      checklist: checklistCountsByTaskId.get(row.id) ?? { total: 0, completed: 0 },
     })),
-    total,
+    total: offset + visibleRows.length + (hasNextPage ? 1 : 0),
     page: options.page,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: hasNextPage ? options.page + 1 : options.page,
     hasPreviousPage: options.page > 1,
-    hasNextPage: offset + rows.length < total,
+    hasNextPage,
   };
+}
+
+async function getChecklistCountsByTaskId(user: CurrentUser, taskIds: number[]) {
+  if (taskIds.length === 0) {
+    return new Map<number, { total: number; completed: number }>();
+  }
+
+  const rows = await db
+    .select({
+      taskId: taskChecklistItems.taskId,
+      total: count(taskChecklistItems.id),
+      completed: sql<number>`sum(case when ${taskChecklistItems.isCompleted} then 1 else 0 end)`,
+    })
+    .from(taskChecklistItems)
+    .where(
+      and(
+        eq(taskChecklistItems.organizationId, user.organizationId),
+        inArray(taskChecklistItems.taskId, taskIds),
+      ),
+    )
+    .groupBy(taskChecklistItems.taskId);
+
+  return new Map(
+    rows.map((row) => [
+      row.taskId,
+      {
+        total: Number(row.total ?? 0),
+        completed: Number(row.completed ?? 0),
+      },
+    ]),
+  );
 }
 
 async function getTaskChecklistItems(user: CurrentUser, taskId: number) {
@@ -975,6 +1061,7 @@ async function notifyTaskChecklistUpdate(
     .select({
       id: tasks.id,
       title: tasks.title,
+      departmentId: tasks.departmentId,
       createdByUserId: tasks.createdByUserId,
       assignedToUserId: tasks.assignedToUserId,
     })
@@ -992,19 +1079,70 @@ async function notifyTaskChecklistUpdate(
       : task.assignedToUserId;
 
   if (!recipientId || recipientId === user.id) {
+    await notifyDepartmentManagersOfTaskUpdate(user, {
+      taskId: task.id,
+      departmentId: task.departmentId,
+      title: task.title,
+      message: `${user.name} updated "${task.title}". Changes: ${changeDescription}`,
+    });
     return;
   }
 
-  await createOrMergeNotificationForKnownRecipient({
-    organizationId: user.organizationId,
-    userId: recipientId,
-    type: "task_updated",
-    title: "Task updated",
-    message: `${user.name} updated "${task.title}". Changes: ${changeDescription}`,
-    relatedEntityType: "task",
-    relatedEntityId: task.id,
-    actionUrl: `/tasks/${task.id}`,
-  });
+  const message = `${user.name} updated "${task.title}". Changes: ${changeDescription}`;
+
+  await Promise.all([
+    createOrMergeNotificationForKnownRecipient({
+      organizationId: user.organizationId,
+      userId: recipientId,
+      type: "task_updated",
+      title: "Task updated",
+      message,
+      relatedEntityType: "task",
+      relatedEntityId: task.id,
+      actionUrl: `/tasks/${task.id}`,
+    }),
+    notifyDepartmentManagersOfTaskUpdate(user, {
+      taskId: task.id,
+      departmentId: task.departmentId,
+      title: task.title,
+      message,
+      excludeUserIds: [recipientId],
+    }),
+  ]);
+}
+
+async function notifyDepartmentManagersOfTaskUpdate(
+  user: CurrentUser,
+  input: {
+    taskId: number;
+    departmentId: number;
+    title: string;
+    message: string;
+    excludeUserIds?: Array<number | null | undefined>;
+  },
+) {
+  const excludedUserIds = new Set([user.id, ...(input.excludeUserIds ?? [])]);
+  const managerIds = await getDepartmentManagerIds(
+    user.organizationId,
+    input.departmentId,
+  );
+
+  await Promise.all(
+    managerIds
+      .filter((managerId) => !excludedUserIds.has(managerId))
+      .map((managerId) =>
+        createOrMergeNotificationForKnownRecipient({
+          organizationId: user.organizationId,
+          userId: managerId,
+          type: "task_updated",
+          title: "Task updated",
+          message: input.message,
+          relatedEntityType: "task",
+          relatedEntityId: input.taskId,
+          actionUrl: `/tasks/${input.taskId}`,
+        }),
+      ),
+  );
 }
 
 function buildTaskWhere(

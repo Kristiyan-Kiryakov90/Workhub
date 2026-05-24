@@ -21,6 +21,10 @@ export type MobileAuthContext = {
   roles: Array<{ id: number; name: string; description: string | null }>;
 };
 
+type RequireBearerAuthOptions = {
+  includeRoles?: boolean;
+};
+
 export async function loginForMobile(email: string, password: string) {
   const user = await authenticateUser(email, password);
 
@@ -44,7 +48,10 @@ export async function loginForMobile(email: string, password: string) {
   };
 }
 
-export async function requireBearerAuth(request: Request): Promise<MobileAuthContext> {
+export async function requireBearerAuth(
+  request: Request,
+  options: RequireBearerAuthOptions = {},
+): Promise<MobileAuthContext> {
   const authorization = request.headers.get("authorization") ?? "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
 
@@ -99,7 +106,7 @@ export async function requireBearerAuth(request: Request): Promise<MobileAuthCon
 
   return {
     user,
-    roles: await getUserRoles(user),
+    roles: options.includeRoles ? await getUserRoles(user) : [],
   };
 }
 

@@ -19,7 +19,6 @@ import {
   type NotificationGroup,
   type NotificationListData,
   type NotificationListFilters,
-  type NotificationStatusFilter,
 } from "@/modules/notifications/services/notification-service";
 
 export const metadata = {
@@ -40,7 +39,7 @@ export default async function NotificationsPage({
   const filters = parseFilters(params);
   const data = await getCachedNotificationListData(user, filters);
   const currentPath = buildCurrentPath(filters);
-  const hasFilters = Boolean(filters.status || filters.type);
+  const hasFilters = Boolean(filters.type);
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -77,53 +76,27 @@ export default async function NotificationsPage({
       />
 
       <div className="mt-8 space-y-10">
-        {filters.status !== "read" ? (
-          <NotificationSection
-            title="Unread Notifications"
-            description="Important updates waiting for your review."
-            emptyText={
-              hasFilters
-                ? "No notifications match the selected filters."
-                : "You have no unread notifications."
-            }
-            rows={data.unreadNotifications.rows}
-            currentPath={currentPath}
-            pagination={
-              <Pagination
-                page={data.unreadNotifications.page}
-                totalPages={data.unreadNotifications.totalPages}
-                hasPreviousPage={data.unreadNotifications.hasPreviousPage}
-                hasNextPage={data.unreadNotifications.hasNextPage}
-                pageParam="unreadPage"
-                filters={filters}
-              />
-            }
-          />
-        ) : null}
-
-        {filters.status !== "unread" ? (
-          <NotificationSection
-            title="Recent Notifications"
-            description="Recently read updates, ordered newest first."
-            emptyText={
-              hasFilters
-                ? "No notifications match the selected filters."
-                : "You have no notifications yet."
-            }
-            rows={data.recentNotifications.rows}
-            currentPath={currentPath}
-            pagination={
-              <Pagination
-                page={data.recentNotifications.page}
-                totalPages={data.recentNotifications.totalPages}
-                hasPreviousPage={data.recentNotifications.hasPreviousPage}
-                hasNextPage={data.recentNotifications.hasNextPage}
-                pageParam="recentPage"
-                filters={filters}
-              />
-            }
-          />
-        ) : null}
+        <NotificationSection
+          title="Unread Notifications"
+          description="Temporary updates waiting for your review. Reading one removes it."
+          emptyText={
+            hasFilters
+              ? "No notifications match the selected filters."
+              : "You have no notifications."
+          }
+          rows={data.unreadNotifications.rows}
+          currentPath={currentPath}
+          pagination={
+            <Pagination
+              page={data.unreadNotifications.page}
+              totalPages={data.unreadNotifications.totalPages}
+              hasPreviousPage={data.unreadNotifications.hasPreviousPage}
+              hasNextPage={data.unreadNotifications.hasNextPage}
+              pageParam="unreadPage"
+              filters={filters}
+            />
+          }
+        />
       </div>
     </section>
   );
@@ -161,21 +134,6 @@ function NotificationFilters({
       className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Status
-          </span>
-          <select
-            name="status"
-            defaultValue={filters.status ?? ""}
-            className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-          >
-            <option value="">All</option>
-            <option value="unread">Unread</option>
-            <option value="read">Read</option>
-          </select>
-        </label>
-
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
             Type
@@ -354,7 +312,7 @@ function Pagination({
   totalPages: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
-  pageParam: "recentPage" | "unreadPage";
+  pageParam: "unreadPage";
   filters: NotificationListFilters;
 }) {
   if (totalPages <= 1) {
@@ -433,14 +391,11 @@ function Badge({
 }
 
 function parseFilters(params: SearchParams): NotificationListFilters {
-  const status = firstParam(params.status);
   const type = firstParam(params.type);
 
   return {
-    status: isStatusFilter(status) ? status : undefined,
     type: isNotificationGroup(type) ? type : undefined,
     unreadPage: positiveInteger(firstParam(params.unreadPage)) ?? 1,
-    recentPage: positiveInteger(firstParam(params.recentPage)) ?? 1,
   };
 }
 
@@ -457,12 +412,6 @@ function positiveInteger(value: string | undefined) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function isStatusFilter(
-  value: string | undefined,
-): value is NotificationStatusFilter {
-  return value === "read" || value === "unread";
-}
-
 function isNotificationGroup(
   value: string | undefined,
 ): value is NotificationGroup {
@@ -471,10 +420,8 @@ function isNotificationGroup(
 
 function stableNotificationFiltersKey(filters: NotificationListFilters) {
   return JSON.stringify({
-    status: filters.status ?? null,
     type: filters.type ?? null,
     unreadPage: filters.unreadPage ?? 1,
-    recentPage: filters.recentPage ?? 1,
   });
 }
 
@@ -484,19 +431,12 @@ function buildCurrentPath(filters: NotificationListFilters) {
 
 function buildPageHref(
   filters: NotificationListFilters,
-  pageParam: "recentPage" | "unreadPage",
+  pageParam: "unreadPage",
   page: number,
 ) {
   const params = new URLSearchParams();
 
-  if (filters.status) params.set("status", filters.status);
   if (filters.type) params.set("type", filters.type);
-  if (filters.unreadPage && filters.unreadPage > 1 && pageParam !== "unreadPage") {
-    params.set("unreadPage", String(filters.unreadPage));
-  }
-  if (filters.recentPage && filters.recentPage > 1 && pageParam !== "recentPage") {
-    params.set("recentPage", String(filters.recentPage));
-  }
   if (page > 1) params.set(pageParam, String(page));
 
   const query = params.toString();

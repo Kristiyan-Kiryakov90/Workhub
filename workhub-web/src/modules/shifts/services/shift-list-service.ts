@@ -30,7 +30,11 @@ import {
   users,
 } from "@/db/schema";
 import type { CurrentUser } from "@/modules/auth/types";
-import { createNotifications } from "@/modules/notifications/services/notification-service";
+import {
+  createNotifications,
+  getDepartmentManagerIds,
+  type CreateNotificationInput,
+} from "@/modules/notifications/services/notification-service";
 
 export const shiftStatuses = ["scheduled", "completed", "cancelled"] as const;
 export const shiftDateRanges = ["upcoming", "today", "this_week", "this_month"] as const;
@@ -433,20 +437,21 @@ export async function createShift(user: CurrentUser, input: CreateShiftInput) {
     .returning({ id: shifts.id });
 
   await replaceShiftAssignments(user, shift.id, input.assignedUserIds);
-  await createNotifications(
-    input.assignedUserIds
-      .filter((userId) => userId !== user.id)
-      .map((userId) => ({
-        organizationId: user.organizationId,
-        userId,
-        type: "shift_assigned",
-        title: "New shift assigned",
-        message: `You were assigned to ${input.title}.`,
-        relatedEntityType: "shift",
-        relatedEntityId: shift.id,
-        actionUrl: `/shifts/${shift.id}`,
-      })),
-  );
+  await createNotifications([
+    ...buildShiftAssignmentNotifications(user, {
+      shiftId: shift.id,
+      title: input.title,
+      assignedUserIds: input.assignedUserIds,
+    }),
+    ...(await buildDepartmentManagerShiftNotifications(user, {
+      shiftId: shift.id,
+      departmentId: input.departmentId,
+      title: "New shift assigned",
+      message: `${user.name} created ${input.title} for your department.`,
+      type: "shift_assigned",
+      excludeUserIds: input.assignedUserIds,
+    })),
+  ]);
 
   return { ok: true, shiftId: shift.id };
 }
@@ -522,32 +527,27 @@ export async function updateShift(user: CurrentUser, input: UpdateShiftInput) {
   const notificationType =
     input.status === "cancelled" ? "shift_cancelled" : "shift_updated";
 
-  await createNotifications(
-    input.assignedUserIds
-      .filter((userId) => userId !== user.id)
-      .map((userId) => ({
-        organizationId: user.organizationId,
-        userId,
-        type: previousAssignedUserIdSet.has(userId)
-          ? notificationType
-          : "shift_assigned",
-        title:
-          input.status === "cancelled"
-            ? "Shift cancelled"
-            : previousAssignedUserIdSet.has(userId)
-              ? "Shift updated"
-              : "New shift assigned",
-        message:
-          input.status === "cancelled"
-            ? "Your shift schedule has been cancelled."
-            : previousAssignedUserIdSet.has(userId)
-              ? "Your shift schedule has changed."
-              : `You were assigned to ${input.title}.`,
-        relatedEntityType: "shift",
-        relatedEntityId: input.shiftId,
-        actionUrl: `/shifts/${input.shiftId}`,
-      })),
-  );
+  await createNotifications([
+    ...buildShiftUpdateNotifications(user, {
+      shiftId: input.shiftId,
+      title: input.title,
+      status: input.status,
+      assignedUserIds: input.assignedUserIds,
+      previousAssignedUserIdSet,
+      notificationType,
+    }),
+    ...(await buildDepartmentManagerShiftNotifications(user, {
+      shiftId: input.shiftId,
+      departmentId: input.departmentId,
+      title: input.status === "cancelled" ? "Shift cancelled" : "Shift updated",
+      message:
+        input.status === "cancelled"
+          ? `${user.name} cancelled ${input.title} for your department.`
+          : `${user.name} updated ${input.title} for your department.`,
+      type: notificationType,
+      excludeUserIds: input.assignedUserIds,
+    })),
+  ]);
 
   return { ok: true, shiftId: input.shiftId };
 }
@@ -972,6 +972,96 @@ function emptyPage(page: number) {
     hasPreviousPage: false,
     hasNextPage: false,
   };
+}
+
+function buildShiftAssignmentNotifications(
+  user: CurrentUser,
+  input: {
+    shiftId: number;
+    title: string;
+    assignedUserIds: number[];
+  },
+): CreateNotificationInput[] {
+  return input.assignedUserIds
+    .filter((userId) => userId !== user.id)
+    .map((userId) => ({
+      organizationId: user.organizationId,
+      userId,
+      type: "shift_assigned",
+      title: "New shift assigned",
+      message: `You were assigned to ${input.title}.`,
+      relatedEntityType: "shift",
+      relatedEntityId: input.shiftId,
+      actionUrl: `/shifts/${input.shiftId}`,
+    }));
+}
+
+function buildShiftUpdateNotifications(
+  user: CurrentUser,
+  input: {
+    shiftId: number;
+    title: string;
+    status: ShiftStatus;
+    assignedUserIds: number[];
+    previousAssignedUserIdSet: Set<number>;
+    notificationType: "shift_updated" | "shift_cancelled";
+  },
+): CreateNotificationInput[] {
+  return input.assignedUserIds
+    .filter((userId) => userId !== user.id)
+    .map((userId) => ({
+      organizationId: user.organizationId,
+      userId,
+      type: input.previousAssignedUserIdSet.has(userId)
+        ? input.notificationType
+        : "shift_assigned",
+      title:
+        input.status === "cancelled"
+          ? "Shift cancelled"
+          : input.previousAssignedUserIdSet.has(userId)
+            ? "Shift updated"
+            : "New shift assigned",
+      message:
+        input.status === "cancelled"
+          ? "Your shift schedule has been cancelled."
+          : input.previousAssignedUserIdSet.has(userId)
+            ? "Your shift schedule has changed."
+            : `You were assigned to ${input.title}.`,
+      relatedEntityType: "shift",
+      relatedEntityId: input.shiftId,
+      actionUrl: `/shifts/${input.shiftId}`,
+    }));
+}
+
+async function buildDepartmentManagerShiftNotifications(
+  user: CurrentUser,
+  input: {
+    shiftId: number;
+    departmentId: number;
+    title: string;
+    message: string;
+    type: "shift_assigned" | "shift_updated" | "shift_cancelled";
+    excludeUserIds?: number[];
+  },
+): Promise<CreateNotificationInput[]> {
+  const excludedUserIds = new Set([user.id, ...(input.excludeUserIds ?? [])]);
+  const managerIds = await getDepartmentManagerIds(
+    user.organizationId,
+    input.departmentId,
+  );
+
+  return managerIds
+    .filter((managerId) => !excludedUserIds.has(managerId))
+    .map((managerId) => ({
+      organizationId: user.organizationId,
+      userId: managerId,
+      type: input.type,
+      title: input.title,
+      message: input.message,
+      relatedEntityType: "shift",
+      relatedEntityId: input.shiftId,
+      actionUrl: `/shifts/${input.shiftId}`,
+    }));
 }
 
 async function validateShiftWriteAccess(

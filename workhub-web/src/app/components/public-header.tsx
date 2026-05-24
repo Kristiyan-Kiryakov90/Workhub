@@ -1,23 +1,19 @@
 import Link from "next/link";
-import { createCsrfToken } from "@/modules/auth/services/csrf-service";
-import { getCurrentUser } from "@/modules/auth/services/session-service";
-import { userHasRole } from "@/modules/auth/services/authorization-service";
-import { getUnreadNotificationCount } from "@/modules/notifications/services/notification-service";
-import { userCanViewReports } from "@/modules/reports/services/report-service";
+import { getCurrentSessionPayload } from "@/modules/auth/services/session-service";
 import { HeaderSessionNavigation } from "./header-session-navigation";
 
 export async function PublicHeader() {
-  const currentUser = await getCurrentUser();
-  const session = currentUser
+  const sessionPayload = await getCurrentSessionPayload();
+  const session = sessionPayload
     ? {
         currentUser: {
-          name: currentUser.name ?? currentUser.email,
-          organizationName: currentUser.organizationName ?? "WorkHub",
+          name: sessionPayload.name ?? sessionPayload.email,
+          organizationName: sessionPayload.organizationName ?? "WorkHub",
         },
-        logoutCsrfToken: await createCsrfToken("logout"),
-        unreadNotificationCount: await getUnreadNotificationCount(currentUser),
-        canViewReports: await userCanViewReports(currentUser),
-        isMainAdmin: await userHasRole(currentUser, "Main Admin"),
+        logoutCsrfToken: null,
+        unreadNotificationCount: 0,
+        canViewReports: false,
+        isMainAdmin: false,
       }
     : {
         currentUser: null,
@@ -40,7 +36,10 @@ export async function PublicHeader() {
           <span>WorkHub</span>
         </Link>
 
-        <HeaderSessionNavigation initialSession={session} />
+        <HeaderSessionNavigation
+          key={sessionPayload?.jti ?? "public"}
+          initialSession={session}
+        />
       </div>
     </header>
   );

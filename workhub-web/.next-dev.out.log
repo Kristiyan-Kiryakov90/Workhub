@@ -1,0 +1,11 @@
+
+> workhub-web@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.205:3000
+- Environments: .env
+✓ Ready in 371ms
+Creating turbopack project { dir: 'C:\\Projects\\Workhub\\workhub-web', testMode: true }
+[?25h

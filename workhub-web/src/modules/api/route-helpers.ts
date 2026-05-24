@@ -40,9 +40,10 @@ export function paged<T>(items: T[], paging: Paging, totalCount: number) {
 export async function withAuth(
   request: Request,
   handler: (context: MobileAuthContext) => Promise<Response>,
+  options?: { includeRoles?: boolean },
 ) {
   try {
-    return await handler(await requireBearerAuth(request));
+    return await handler(await requireBearerAuth(request, options));
   } catch (error) {
     return handleApiError(error);
   }

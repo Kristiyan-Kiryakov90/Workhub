@@ -317,7 +317,7 @@ function Pagination({
   return (
     <div className="mt-4 flex items-center justify-between gap-4">
       <p className="text-sm text-slate-500">
-        Page {page} of {totalPages}
+        Page {page}
       </p>
       <div className="flex gap-2">
         <PaginationLink

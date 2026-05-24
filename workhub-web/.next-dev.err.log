@@ -1,0 +1,12 @@
+
+thread 'tokio-runtime-worker' (10392) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:930:9:
+Cell data already exists for CellId { type_id: ValueTypeId { id: 239, name: ValueType { name: "turbo_tasks_fs::FileSystemEntryType" } }, index: 0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[Error: Panic in async function] { code: 'GenericFailure' }
+npm error Lifecycle script `dev` failed with error:
+npm error code 1
+npm error path C:\Projects\Workhub\workhub-web
+npm error workspace workhub-web@0.1.0
+npm error location C:\Projects\Workhub\workhub-web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c next dev

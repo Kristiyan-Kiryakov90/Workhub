@@ -22,6 +22,7 @@ import {
   roles,
   shiftAssignments,
   shifts,
+  taskChecklistItems,
   tasks,
   userRoles,
   users,
@@ -29,6 +30,7 @@ import {
 import type { CurrentUser } from "@/modules/auth/types";
 import {
   createLeaveRequest,
+  getLeaveRequestDetails,
   leaveRequestTypes,
   reviewLeaveRequest,
   type LeaveRequestType,
@@ -39,6 +41,9 @@ import {
   markNotificationAsRead,
 } from "@/modules/notifications/services/notification-service";
 import {
+  addTaskChecklistItem,
+  deleteTaskChecklistItem,
+  toggleTaskChecklistItem,
   taskStatuses,
   updateTaskDetails,
   type TaskStatus,
@@ -56,11 +61,23 @@ export async function getMobileDashboard(
     startDate?: string | null;
     endDate?: string | null;
     departmentId?: number;
+    includeSummary?: boolean;
   },
 ) {
   const context = await getActorContext(user);
   const dateRange = normalizeDateRange(input.startDate, input.endDate);
   const departmentId = await validateDepartmentFilter(user, context, input.departmentId);
+
+  const eventsPromise = getCalendarEvents(user, context, {
+    ...dateRange,
+    departmentId,
+  });
+
+  if (input.includeSummary === false) {
+    return {
+      calendarEvents: await eventsPromise,
+    };
+  }
 
   const [activeTasks, upcomingShifts, pendingLeave, unreadNotifications, events] =
     await Promise.all([
@@ -68,10 +85,7 @@ export async function getMobileDashboard(
       countVisibleShifts(user, context, departmentId),
       countVisibleLeave(user, context, "pending", departmentId),
       getUnreadNotificationCount(user),
-      getCalendarEvents(user, context, {
-        ...dateRange,
-        departmentId,
-      }),
+      eventsPromise,
     ]);
 
   return {
@@ -87,7 +101,10 @@ export async function getMobileDashboard(
 
 export async function listMobileTasks(user: CurrentUser, paging: Paging) {
   const context = await getActorContext(user);
-  const where = buildTaskVisibilityWhere(user, context);
+  const where = and(
+    buildTaskVisibilityWhere(user, context),
+    inArray(tasks.status, ["todo", "in_progress"]),
+  );
 
   const [rows, totals] = await Promise.all([
     db
@@ -126,6 +143,7 @@ export async function getMobileTask(user: CurrentUser, taskId: number) {
       id: tasks.id,
       title: tasks.title,
       description: tasks.description,
+      notes: tasks.notes,
       department: departments.name,
       assignedUser: users.name,
       status: tasks.status,
@@ -142,7 +160,9 @@ export async function getMobileTask(user: CurrentUser, taskId: number) {
     notFound("Task not found.");
   }
 
-  return task;
+  const checklistItems = await getMobileTaskChecklistItems(user, task.id);
+
+  return { ...task, checklistItems };
 }
 
 export async function updateMobileTaskStatus(
@@ -154,10 +174,44 @@ export async function updateMobileTaskStatus(
     badRequest("Choose a valid task status.");
   }
 
+  const context = await getActorContext(user);
+  const [task] = await db
+    .select({
+      notes: tasks.notes,
+    })
+    .from(tasks)
+    .innerJoin(departments, eq(tasks.departmentId, departments.id))
+    .leftJoin(users, eq(tasks.assignedToUserId, users.id))
+    .where(and(eq(tasks.id, taskId), buildTaskVisibilityWhere(user, context)))
+    .limit(1);
+
+  if (!task) {
+    notFound("Task not found.");
+  }
+
   const result = await updateTaskDetails(user, {
     taskId,
     status: status as TaskStatus,
-    notes: null,
+    notes: task.notes,
+  });
+
+  if (!result.ok) {
+    forbidden(result.error);
+  }
+
+  return { ok: true, status };
+}
+
+export async function updateMobileTaskNotes(
+  user: CurrentUser,
+  taskId: number,
+  notes: string | null,
+) {
+  const task = await getMobileTask(user, taskId);
+  const result = await updateTaskDetails(user, {
+    taskId,
+    status: task.status as TaskStatus,
+    notes,
   });
 
   if (!result.ok) {
@@ -167,9 +221,71 @@ export async function updateMobileTaskStatus(
   return { ok: true };
 }
 
+export async function addMobileTaskChecklistItem(
+  user: CurrentUser,
+  taskId: number,
+  title: string,
+) {
+  const trimmedTitle = title.trim();
+
+  if (!trimmedTitle || trimmedTitle.length > 255) {
+    badRequest("Enter a checklist item up to 255 characters.");
+  }
+
+  const result = await addTaskChecklistItem(user, {
+    taskId,
+    title: trimmedTitle,
+  });
+
+  if (!result.ok) {
+    forbidden("You do not have access to update this checklist.");
+  }
+
+  return result;
+}
+
+export async function toggleMobileTaskChecklistItem(
+  user: CurrentUser,
+  taskId: number,
+  itemId: number,
+  isCompleted: boolean,
+) {
+  const result = await toggleTaskChecklistItem(user, {
+    taskId,
+    itemId,
+    isCompleted,
+  });
+
+  if (!result.ok) {
+    forbidden("You do not have access to update this checklist.");
+  }
+
+  return { ok: true };
+}
+
+export async function deleteMobileTaskChecklistItem(
+  user: CurrentUser,
+  taskId: number,
+  itemId: number,
+) {
+  const result = await deleteTaskChecklistItem(user, {
+    taskId,
+    itemId,
+  });
+
+  if (!result.ok) {
+    forbidden("You do not have access to update this checklist.");
+  }
+
+  return { ok: true };
+}
+
 export async function listMobileShifts(user: CurrentUser, paging: Paging) {
   const context = await getActorContext(user);
-  const where = buildShiftVisibilityWhere(user, context);
+  const where = and(
+    buildShiftVisibilityWhere(user, context),
+    inArray(shifts.status, ["scheduled", "in_progress"]),
+  );
   const assignmentCounts = getShiftAssignmentCounts(user);
 
   const [rows, totals] = await Promise.all([
@@ -245,12 +361,17 @@ export async function getMobileShift(user: CurrentUser, shiftId: number) {
   return { ...shift, assignedEmployees };
 }
 
-export async function listMobileLeave(user: CurrentUser, paging: Paging) {
+export async function listMobileLeave(
+  user: CurrentUser,
+  paging: Paging,
+  options: { includeTotal?: boolean } = {},
+) {
   const context = await getActorContext(user);
-  const where = buildLeaveVisibilityWhere(user, context);
+  const today = toIsoDate(new Date());
+  const where = and(buildLeaveVisibilityWhere(user, context), gte(leaveRequests.endDate, today));
+  const includeTotal = options.includeTotal !== false;
 
-  const [rows, totals] = await Promise.all([
-    db
+  const rowsQuery = db
       .select({
         id: leaveRequests.id,
         type: leaveRequests.type,
@@ -269,9 +390,26 @@ export async function listMobileLeave(user: CurrentUser, paging: Paging) {
       .innerJoin(users, eq(leaveRequests.userId, users.id))
       .innerJoin(departments, eq(leaveRequests.departmentId, departments.id))
       .where(where)
-      .orderBy(desc(leaveRequests.createdAt), desc(leaveRequests.id))
-      .limit(paging.pageSize)
-      .offset(paging.offset),
+      .orderBy(asc(leaveRequests.startDate), asc(leaveRequests.endDate), asc(leaveRequests.id))
+      .limit(includeTotal ? paging.pageSize : paging.pageSize + 1)
+      .offset(paging.offset);
+
+  if (!includeTotal) {
+    const rows = await rowsQuery;
+    const items = rows.slice(0, paging.pageSize);
+    const hasNextPage = rows.length > paging.pageSize;
+
+    return {
+      items,
+      page: paging.page,
+      pageSize: paging.pageSize,
+      totalCount: paging.offset + items.length + (hasNextPage ? 1 : 0),
+      totalPages: hasNextPage ? paging.page + 1 : paging.page,
+    };
+  }
+
+  const [rows, totals] = await Promise.all([
+    rowsQuery,
     db
       .select({ value: count() })
       .from(leaveRequests)
@@ -281,6 +419,28 @@ export async function listMobileLeave(user: CurrentUser, paging: Paging) {
   ]);
 
   return paged(rows, paging, Number(totals[0]?.value ?? 0));
+}
+
+export async function getMobileLeave(user: CurrentUser, requestId: number) {
+  const context = await getActorContext(user);
+  const scopes = context.isMainAdmin
+    ? (["admin", "self"] as const)
+    : context.managedDepartmentIds.length > 0
+      ? (["manager", "self"] as const)
+      : (["self"] as const);
+
+  for (const scope of scopes) {
+    const request = await getLeaveRequestDetails(user, requestId, scope);
+
+    if (request) {
+      return {
+        ...request,
+        canReview: request.status === "pending" && scope !== "self",
+      };
+    }
+  }
+
+  notFound("Leave request not found.");
 }
 
 export async function createMobileLeave(
@@ -369,9 +529,10 @@ export async function listMobileNotifications(
         and(
           eq(notifications.organizationId, user.organizationId),
           eq(notifications.userId, user.id),
+          eq(notifications.isRead, false),
         ),
       )
-      .orderBy(asc(notifications.isRead), desc(notifications.createdAt), desc(notifications.id))
+      .orderBy(desc(notifications.createdAt), desc(notifications.id))
       .limit(paging.pageSize)
       .offset(paging.offset),
     db
@@ -381,11 +542,18 @@ export async function listMobileNotifications(
         and(
           eq(notifications.organizationId, user.organizationId),
           eq(notifications.userId, user.id),
+          eq(notifications.isRead, false),
         ),
       ),
   ]);
 
   return paged(rows, paging, Number(totals[0]?.value ?? 0));
+}
+
+export async function getMobileUnreadNotificationCount(user: CurrentUser) {
+  return {
+    unreadCount: await getUnreadNotificationCount(user),
+  };
 }
 
 export async function readMobileNotification(user: CurrentUser, notificationId: number) {
@@ -619,6 +787,7 @@ async function getCalendarEvents(
         title: sql<string>`${users.name} || ' leave'`,
         start: leaveRequests.startDate,
         end: leaveRequests.endDate,
+        leaveType: leaveRequests.type,
         departmentName: departments.name,
       })
       .from(leaveRequests)
@@ -723,6 +892,24 @@ function getShiftAssignmentCounts(user: CurrentUser) {
     .where(eq(shiftAssignments.organizationId, user.organizationId))
     .groupBy(shiftAssignments.shiftId)
     .as("assignment_counts");
+}
+
+function getMobileTaskChecklistItems(user: CurrentUser, taskId: number) {
+  return db
+    .select({
+      id: taskChecklistItems.id,
+      title: taskChecklistItems.title,
+      isCompleted: taskChecklistItems.isCompleted,
+      position: taskChecklistItems.position,
+    })
+    .from(taskChecklistItems)
+    .where(
+      and(
+        eq(taskChecklistItems.organizationId, user.organizationId),
+        eq(taskChecklistItems.taskId, taskId),
+      ),
+    )
+    .orderBy(asc(taskChecklistItems.position), asc(taskChecklistItems.id));
 }
 
 function userAssignedToShiftSql(user: CurrentUser) {

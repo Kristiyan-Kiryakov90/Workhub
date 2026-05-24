@@ -30,12 +30,11 @@ export const notificationGroups = [
 
 export type NotificationType = (typeof notificationTypes)[number];
 export type NotificationGroup = (typeof notificationGroups)[number];
-export type NotificationStatusFilter = "read" | "unread";
+export type NotificationStatusFilter = "unread";
 export type NotificationListFilters = {
   status?: NotificationStatusFilter;
   type?: NotificationGroup;
   unreadPage?: number;
-  recentPage?: number;
 };
 export type CreateNotificationInput = {
   organizationId: number;
@@ -63,29 +62,16 @@ export async function getNotificationListData(
   user: CurrentUser,
   filters: NotificationListFilters,
 ) {
-  const [unreadNotifications, recentNotifications, unreadCount] =
-    await Promise.all([
-      filters.status === "read"
-        ? Promise.resolve(emptyPage(filters.unreadPage ?? 1))
-        : getNotificationsPage(user, filters, {
-            isRead: false,
-            page: filters.unreadPage ?? 1,
-          }),
-      filters.status === "unread"
-        ? Promise.resolve(emptyPage(filters.recentPage ?? 1))
-        : getNotificationsPage(user, filters, {
-            isRead: true,
-            page: filters.recentPage ?? 1,
-          }),
-      getUnreadNotificationCount(user),
-    ]);
+  const [unreadNotifications, unreadCount] = await Promise.all([
+    getNotificationsPage(user, filters, filters.unreadPage ?? 1),
+    getUnreadNotificationCount(user),
+  ]);
 
   return {
     filters,
     pageSize,
     unreadCount,
     unreadNotifications,
-    recentNotifications,
   };
 }
 
@@ -106,8 +92,7 @@ export async function getUnreadNotificationCount(user: CurrentUser) {
 
 export async function markNotificationAsRead(user: CurrentUser, notificationId: number) {
   const [notification] = await db
-    .update(notifications)
-    .set({ isRead: true, readAt: new Date() })
+    .delete(notifications)
     .where(
       and(
         eq(notifications.id, notificationId),
@@ -117,20 +102,22 @@ export async function markNotificationAsRead(user: CurrentUser, notificationId: 
     )
     .returning({ actionUrl: notifications.actionUrl });
 
+  revalidateNotificationRecipient(user.organizationId, user.id);
+
   return notification ?? null;
 }
 
 export async function markAllNotificationsAsRead(user: CurrentUser) {
   await db
-    .update(notifications)
-    .set({ isRead: true, readAt: new Date() })
+    .delete(notifications)
     .where(
       and(
         eq(notifications.organizationId, user.organizationId),
         eq(notifications.userId, user.id),
-        eq(notifications.isRead, false),
       ),
     );
+
+  revalidateNotificationRecipient(user.organizationId, user.id);
 }
 
 export async function createNotification(input: CreateNotificationInput) {
@@ -204,6 +191,7 @@ export async function createNotificationForKnownRecipientOnce(
         input.relatedEntityId
           ? eq(notifications.relatedEntityId, input.relatedEntityId)
           : isNull(notifications.relatedEntityId),
+        eq(notifications.isRead, false),
         gt(notifications.createdAt, dedupeSince),
       ),
     )
@@ -359,10 +347,10 @@ export function getNotificationTypeLabel(type: string) {
 async function getNotificationsPage(
   user: CurrentUser,
   filters: NotificationListFilters,
-  options: { isRead: boolean; page: number },
+  page: number,
 ) {
-  const where = buildNotificationWhere(user, filters, options.isRead);
-  const offset = (options.page - 1) * pageSize;
+  const where = buildNotificationWhere(user, filters);
+  const offset = (page - 1) * pageSize;
   const [rows, totals] = await Promise.all([
     db
       .select({
@@ -386,9 +374,9 @@ async function getNotificationsPage(
   return {
     rows,
     total,
-    page: options.page,
+    page,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
-    hasPreviousPage: options.page > 1,
+    hasPreviousPage: page > 1,
     hasNextPage: offset + rows.length < total,
   };
 }
@@ -396,12 +384,11 @@ async function getNotificationsPage(
 function buildNotificationWhere(
   user: CurrentUser,
   filters: NotificationListFilters,
-  isRead: boolean,
 ) {
   const conditions = [
     eq(notifications.organizationId, user.organizationId),
     eq(notifications.userId, user.id),
-    eq(notifications.isRead, isRead),
+    eq(notifications.isRead, false),
   ];
 
   if (filters.type) {
@@ -409,17 +396,6 @@ function buildNotificationWhere(
   }
 
   return and(...conditions);
-}
-
-function emptyPage(page: number) {
-  return {
-    rows: [],
-    total: 0,
-    page,
-    totalPages: 1,
-    hasPreviousPage: false,
-    hasNextPage: false,
-  };
 }
 
 function dedupeNotificationInputs(inputs: CreateNotificationInput[]) {

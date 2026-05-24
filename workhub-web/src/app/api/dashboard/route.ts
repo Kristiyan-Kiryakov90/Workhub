@@ -14,6 +14,7 @@ export async function GET(request: Request) {
         startDate: searchParams.get("startDate"),
         endDate: searchParams.get("endDate"),
         departmentId: parseOptionalId(searchParams.get("departmentId")),
+        includeSummary: searchParams.get("summary") !== "0",
       }),
     );
   });

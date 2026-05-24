@@ -17,8 +17,6 @@ import {
   departmentMembers,
   departments,
   leaveRequests,
-  permissions,
-  rolePermissions,
   roles,
   userRoles,
   users,
@@ -90,7 +88,9 @@ export async function getLeaveListData(
 
   const [departmentOptions, employeeOptions, myRequests, pendingRequests, reviewedRequests] =
     await Promise.all([
-      getDepartmentOptions(user, isMainAdmin, managedDepartmentIds),
+      isMainAdmin || managedDepartmentIds.length === 0
+        ? getDepartmentOptions(user, isMainAdmin, managedDepartmentIds)
+        : Promise.resolve(context.managedDepartments),
       canFilterByEmployee
         ? getEmployeeOptions(user, isMainAdmin, managedDepartmentIds)
         : Promise.resolve([]),
@@ -513,14 +513,11 @@ async function getLeaveActorContext(user: CurrentUser) {
   const rows = await db
     .select({
       roleName: roles.name,
-      permissionKey: permissions.key,
       managedDepartmentId: departments.id,
       managedDepartmentName: departments.name,
     })
     .from(userRoles)
     .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .leftJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-    .leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
     .leftJoin(
       departmentMembers,
       and(
@@ -546,9 +543,6 @@ async function getLeaveActorContext(user: CurrentUser) {
 
   return {
     roleNames: Array.from(new Set(rows.map((row) => row.roleName))),
-    permissions: new Set(
-      rows.flatMap((row) => (row.permissionKey ? [row.permissionKey] : [])),
-    ),
     managedDepartments: Array.from(
       new Map(
         rows.flatMap((row) =>
