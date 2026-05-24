@@ -39,30 +39,35 @@ export type DepartmentAssignment = {
 };
 
 export async function getOwnProfileData(user: CurrentUser) {
-  const [profile] = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      phone: users.phone,
-      isActive: users.isActive,
-      createdAt: users.createdAt,
-      organizationName: organizations.name,
-    })
-    .from(users)
-    .innerJoin(organizations, eq(users.organizationId, organizations.id))
-    .where(and(eq(users.id, user.id), eq(users.organizationId, user.organizationId)))
-    .limit(1);
+  const [profileRows, roleRows, departmentRows, mainAdminCount] =
+    await Promise.all([
+      db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          phone: users.phone,
+          isActive: users.isActive,
+          createdAt: users.createdAt,
+          organizationName: organizations.name,
+        })
+        .from(users)
+        .innerJoin(organizations, eq(users.organizationId, organizations.id))
+        .where(and(eq(users.id, user.id), eq(users.organizationId, user.organizationId)))
+        .limit(1),
+      getUserRoles(user.organizationId, user.id),
+      getUserDepartments(user.organizationId, user.id),
+      getActiveMainAdminCount(user.organizationId),
+    ]);
+
+  const [profile] = profileRows;
 
   if (!profile) {
     throw new ProfileError("not_found", "Profile not found.");
   }
 
-  const [roleRows, departmentRows, canSelfDelete] = await Promise.all([
-    getUserRoles(user.organizationId, user.id),
-    getUserDepartments(user.organizationId, user.id),
-    canDeleteUser(user.organizationId, user.id),
-  ]);
+  const canSelfDelete =
+    !roleRows.some((role) => role.name === "Main Admin") || mainAdminCount > 1;
 
   return {
     profile,
@@ -701,6 +706,10 @@ async function canDeleteUser(organizationId: number, userId: number) {
     return true;
   }
 
+  return (await getActiveMainAdminCount(organizationId)) > 1;
+}
+
+async function getActiveMainAdminCount(organizationId: number) {
   const [mainAdminCount] = await db
     .select({ total: count() })
     .from(userRoles)
@@ -715,7 +724,7 @@ async function canDeleteUser(organizationId: number, userId: number) {
       ),
     );
 
-  return mainAdminCount.total > 1;
+  return mainAdminCount.total;
 }
 
 async function getUserRoles(organizationId: number, userId: number) {

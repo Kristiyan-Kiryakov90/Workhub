@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
@@ -142,12 +141,7 @@ export default async function ReportsPage({
                     {reports.departmentComparison.map((department) => (
                       <tr key={department.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-semibold text-slate-950">
-                          <Link
-                            href={`/admin/departments/${department.id}`}
-                            className="hover:text-cyan-700"
-                          >
-                            {department.name}
-                          </Link>
+                          {department.name}
                         </td>
                         <td className="px-4 py-3 text-slate-700">
                           {department.employees}
