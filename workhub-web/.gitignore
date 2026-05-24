@@ -41,3 +41,12 @@ yarn-error.log*
 next-env.d.ts
 
 .agents
+
+.next-dev-webpack.err.log
+.next-dev-webpack.out.log
+.next-dev.err.log
+.next-dev.out.log
+.next-prod-webpack.err.log
+.next-prod-webpack.out.log
+.next-prod.err.log
+.next-prod.out.log
