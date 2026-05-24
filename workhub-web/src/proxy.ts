@@ -53,9 +53,10 @@ export const config = {
 
 function withCorsHeaders(response: NextResponse, request: NextRequest) {
   const origin = request.headers.get("origin");
+  const allowedOrigin = getAllowedApiOrigin(origin);
 
-  if (origin && isAllowedApiOrigin(origin)) {
-    response.headers.set("Access-Control-Allow-Origin", origin);
+  if (allowedOrigin) {
+    response.headers.set("Access-Control-Allow-Origin", allowedOrigin);
     response.headers.set("Vary", "Origin");
   }
 
@@ -70,15 +71,29 @@ function withCorsHeaders(response: NextResponse, request: NextRequest) {
   return response;
 }
 
-function isAllowedApiOrigin(origin: string) {
+function getAllowedApiOrigin(origin: string | null) {
+  const configuredOrigin = process.env.MOBILE_APP_ORIGIN?.trim();
+
+  if (configuredOrigin) {
+    return origin === configuredOrigin ? origin : null;
+  }
+
+  if (!origin) {
+    return "*";
+  }
+
   try {
     const url = new URL(origin);
 
-    return (
+    if (
       (url.hostname === "localhost" || url.hostname === "127.0.0.1") &&
       ["3000", "8081", "8082", "19006"].includes(url.port)
-    );
+    ) {
+      return origin;
+    }
+
+    return "*";
   } catch {
-    return false;
+    return "*";
   }
 }

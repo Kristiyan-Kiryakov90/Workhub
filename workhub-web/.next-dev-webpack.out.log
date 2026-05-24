@@ -1717,3 +1717,4 @@
  GET /reports 200 in 3.7s (next.js: 1316ms, proxy.ts: 134ms, application-code: 2.2s)
  GET /reports 200 in 357ms (next.js: 40ms, proxy.ts: 28ms, application-code: 290ms)
  GET /api/header-session 200 in 1708ms (next.js: 898ms, proxy.ts: 13ms, application-code: 797ms)
+ GET /reports 200 in 857ms (next.js: 68ms, proxy.ts: 100ms, application-code: 689ms)
