@@ -8009,3 +8009,4 @@ params: eba4f13b-3b0b-4e79-9511-ecb1975675ed,3,1,1,true,2026-05-24T05:03:29.627Z
   }
 }
 ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+⚠ Found a change in next.config.ts. Restarting the server to apply the changes...

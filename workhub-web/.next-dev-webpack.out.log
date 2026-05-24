@@ -1708,3 +1708,12 @@
  GET /login 200 in 258ms (next.js: 140ms, proxy.ts: 7ms, application-code: 112ms)
  GET /reports 200 in 836ms (next.js: 13ms, proxy.ts: 203ms, application-code: 620ms)
  GET /reports 200 in 703ms (next.js: 3ms, proxy.ts: 6ms, application-code: 693ms)
+▲ Next.js 16.2.6 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.205:3000
+- Environments: .env
+✓ Ready in 354ms
+
+ GET /reports 200 in 3.7s (next.js: 1316ms, proxy.ts: 134ms, application-code: 2.2s)
+ GET /reports 200 in 357ms (next.js: 40ms, proxy.ts: 28ms, application-code: 290ms)
+ GET /api/header-session 200 in 1708ms (next.js: 898ms, proxy.ts: 13ms, application-code: 797ms)
