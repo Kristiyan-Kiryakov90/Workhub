@@ -18,6 +18,22 @@ WorkHub Admin Platform is a modular full-stack SaaS application designed for org
 
 The platform is built as a production-oriented modular monolith architecture and is designed to scale into a real enterprise product after the capstone implementation phase.
 
+
+APP:
+https://workhubx.netlify.app/
+
+https://workhubx-mobile.netlify.app/
+
+
+
+
+Test Credentials
+
+admin@sofia.gov  /  pass: pass123   -- admin
+maria.hr@sofia.gov  / pass: pass123  -- department manager
+elena.hr@sofia.gov  /  pass: pass123  -- employee
+
+
 ---
 
 # Project Goals
